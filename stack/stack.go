@@ -166,6 +166,9 @@ func (s *TCPStackGvisor) SendRaw(h header.TCP) (n int, err error) {
 		go s.initAccept()
 	}
 
+	// notice:
+	//    这个 PacketBufferPtr 太不友好了
+
 	pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{
 		Payload: buffer.MakeWithData(h),
 		// ReserveHeaderBytes: header.IPv4MinimumSize,
