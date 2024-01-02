@@ -8,6 +8,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -37,14 +38,29 @@ type TCPStackGvisor struct {
 	stack *stack.Stack
 
 	ip  *networkProtocol
-	tcp *tcpProtocolWrap
+	tcp *tcpWrapProtocol
 
 	mu          sync.RWMutex
-	inited      atomic.Bool
+	state       state
 	initTrigger *sync.Cond
 	initErr     error
 
 	lport, rport uint16
+}
+
+type state uint32
+
+const (
+	none state = iota
+	initing
+	inited
+)
+
+func (s *state) cas(old, new state) bool {
+	return atomic.CompareAndSwapUint32((*uint32)(s), uint32(old), uint32(new))
+}
+func (s *state) inited() bool {
+	return atomic.LoadUint32((*uint32)(s)) == uint32(inited)
 }
 
 var constAddr = tcpip.AddrFrom4([4]byte{192, 168, 0, 1})
@@ -92,7 +108,7 @@ func (s *TCPStackGvisor) TransportProtocolFactory(*stack.Stack) stack.TransportP
 }
 
 func (s *TCPStackGvisor) SendSeg(seg []byte) (n int, err error) {
-	if !s.inited.Load() { // todo: 需要三种状态
+	if !s.state.inited() { // todo: 需要三种状态
 		s.mu.Lock()
 		s.initTrigger.Wait()
 		s.mu.Unlock()
@@ -109,7 +125,7 @@ func (s *TCPStackGvisor) SendSeg(seg []byte) (n int, err error) {
 }
 
 func (s *TCPStackGvisor) RecvSeg(seg []byte) (n int, err error) {
-	if !s.inited.Load() {
+	if !s.state.inited() {
 		s.mu.Lock()
 		s.initTrigger.Wait()
 		s.mu.Unlock()
@@ -144,7 +160,7 @@ func (s *TCPStackGvisor) RecvSeg(seg []byte) (n int, err error) {
 }
 
 func (s *TCPStackGvisor) RecvRaw() (h header.TCP, err error) {
-	if s.inited.CompareAndSwap(false, true) {
+	if s.state.cas(none, initing) {
 		// connect
 		if s.initErr = s.initBase(); s.initErr != nil {
 			return nil, s.initErr
@@ -158,7 +174,7 @@ func (s *TCPStackGvisor) RecvRaw() (h header.TCP, err error) {
 }
 
 func (s *TCPStackGvisor) SendRaw(h header.TCP) (n int, err error) {
-	if s.inited.CompareAndSwap(false, true) {
+	if s.state.cas(none, initing) {
 		// accept
 		if s.initErr = s.initBase(); s.initErr != nil {
 			return 0, s.initErr
@@ -170,17 +186,17 @@ func (s *TCPStackGvisor) SendRaw(h header.TCP) (n int, err error) {
 	//    这个 PacketBufferPtr 太不友好了
 
 	pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{
-		Payload: buffer.MakeWithData(h),
-		// ReserveHeaderBytes: header.IPv4MinimumSize,
+		Payload:            buffer.MakeWithData(h[h.DataOffset():]),
+		ReserveHeaderBytes: header.IPv4MinimumSize + int(h.DataOffset()),
 	})
 	pkb.NICID = constNic
 	pkb.NetworkProtocolNumber = header.IPv4ProtocolNumber
 	pkb.TransportProtocolNumber = header.TCPProtocolNumber
-	// nh := pkb.NetworkHeader().Push(header.IPv4MinimumSize)
-	// t := pkb.TransportHeader().Push(len(h))
-	pkb.ReserveHeaderBytes(header.IPv4MinimumSize)
-
-	// fmt.Println(nh, t)
+	ipHdr := header.IPv4(pkb.NetworkHeader().Push(header.IPv4MinimumSize))
+	ipHdr.SetSourceAddress(constAddr)
+	ipHdr.SetDestinationAddress(constAddr)
+	tcpHdr := pkb.TransportHeader().Push(int(h.DataOffset()))
+	copy(tcpHdr, h)
 
 	s.tcp.transportProtocol.QueuePacket(s.tcp.ep, stack.TransportEndpointID{}, pkb)
 
@@ -257,21 +273,23 @@ func (s *TCPStackGvisor) initAccept() {
 
 		ep, wq, err = s.tcp.ep.Accept(raddr)
 	}
+	if err != nil {
+		s.initErr = &net.OpError{
+			Op:  "accept",
+			Net: "tcp",
+			Err: errors.New(err.String()),
+		}
+		return
+	}
 
-	fmt.Println(ep, wq, err)
+	// todo: maybe always self
+	epPtr1, wqPtr1 := uintptr(unsafe.Pointer(&s.tcp.ep)), uintptr(unsafe.Pointer(&s.tcp.wq))
+	epPtr2, wqPtr2 := uintptr(unsafe.Pointer(&ep)), uintptr(unsafe.Pointer(&wq))
 
-	// // todo: maybe always self
-	// var err tcpip.Error
-	// s.tcp.ep, s.tcp.wq, err = s.tcp.ep.Accept(raddr)
-	// if err != nil {
-	// 	s.initErr = &net.OpError{
-	// 		Op:  "accept",
-	// 		Net: "tcp",
-	// 		Err: errors.New(err.String()),
-	// 	}
-	// 	return
-	// }
+	fmt.Println(epPtr1, epPtr2)
+	fmt.Println(wqPtr1, wqPtr2)
 
+	s.state.cas(initing, inited)
 	s.initTrigger.Broadcast()
 }
 
@@ -299,5 +317,6 @@ func (s *TCPStackGvisor) initConnect() {
 		return
 	}
 
+	s.state.cas(initing, inited)
 	s.initTrigger.Broadcast()
 }

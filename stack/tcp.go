@@ -9,7 +9,7 @@ import (
 	"gvisor.dev/gvisor/pkg/waiter"
 )
 
-type tcpProtocolWrap struct {
+type tcpWrapProtocol struct {
 	transportProtocol
 
 	ep transportEndpoint
@@ -27,11 +27,11 @@ type transportEndpoint interface {
 	tcpip.Endpoint
 }
 
-func NewTCPProtocolWrap() *tcpProtocolWrap {
-	return &tcpProtocolWrap{}
+func NewTCPProtocolWrap() *tcpWrapProtocol {
+	return &tcpWrapProtocol{}
 }
 
-func (t *tcpProtocolWrap) init(s *stack.Stack) error {
+func (t *tcpWrapProtocol) init(s *stack.Stack) error {
 	var ok bool
 	t.transportProtocol, ok = (tcp.NewProtocol(s)).(transportProtocol)
 	if !ok {
@@ -40,7 +40,7 @@ func (t *tcpProtocolWrap) init(s *stack.Stack) error {
 	return nil
 }
 
-func (t *tcpProtocolWrap) NewEndpoint(netProto tcpip.NetworkProtocolNumber, waitQueue *waiter.Queue) (tcpip.Endpoint, tcpip.Error) {
+func (t *tcpWrapProtocol) NewEndpoint(netProto tcpip.NetworkProtocolNumber, waitQueue *waiter.Queue) (tcpip.Endpoint, tcpip.Error) {
 	ep, err := t.transportProtocol.NewEndpoint(netProto, waitQueue)
 	if err != nil {
 		return nil, err
@@ -56,6 +56,6 @@ func (t *tcpProtocolWrap) NewEndpoint(netProto tcpip.NetworkProtocolNumber, wait
 	return t.ep, nil
 }
 
-func (t *tcpProtocolWrap) Number() tcpip.TransportProtocolNumber {
+func (t *tcpWrapProtocol) Number() tcpip.TransportProtocolNumber {
 	return tcp.ProtocolNumber
 }
