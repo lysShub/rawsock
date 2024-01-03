@@ -1,10 +1,9 @@
-package raw
+package raw_test
 
 import (
 	"context"
-	"errors"
+	"io"
 	"net"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,166 +18,81 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 )
 
-// 需要在内部实现缓存
-type TCPStack interface {
+func Test_UsrStack_PingPong(t *testing.T) {
+	const constNic tcpip.NICID = 123
+	var constAddr = tcpip.AddrFromSlice(locIP)
 
-	/*
-							对接ip-conn
-								|
-		   OutboundSeg ==> OutboundRaw
-		   InboundSeg  <== InboundRaw
-	*/
+	var s *stack.Stack
+	{
+		s = stack.New(stack.Options{
+			NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol},
+			TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol},
+			// HandleLocal:        true,
+		})
 
-	SendRaw(h header.TCP) (n int, err error)
-	RecvSeg(seg []byte) (n int, err error)
+		link := channel.New(16, 1500, "")
+		go func() {
+			for !link.IsAttached() {
+				time.Sleep(time.Millisecond * 50)
+			}
+			for {
+				pkb := link.ReadContext(context.Background())
 
-	SendSeg(seg []byte) (n int, err error)
-	RecvRaw() (n header.TCP, err error)
-}
+				link.InjectInbound(
+					ipv4.ProtocolNumber,
+					stack.NewPacketBuffer(stack.PacketBufferOptions{
+						Payload: buffer.MakeWithView(pkb.ToView()),
+					}),
+				)
+			}
+		}()
 
-func TestXxxx(t *testing.T) {
-	g, err := NewTCPStackGvisor(2345, 80, 1500)
-	require.NoError(t, err)
+		err := s.CreateNIC(constNic, link)
+		require.Nil(t, err)
+		err = s.AddProtocolAddress(
+			constNic,
+			tcpip.ProtocolAddress{
+				Protocol:          ipv4.ProtocolNumber,
+				AddressWithPrefix: constAddr.WithPrefix(),
+			},
+			stack.AddressProperties{},
+		)
+		require.Nil(t, err)
+		s.SetRouteTable([]tcpip.Route{{
+			Destination: header.IPv4EmptySubnet,
+			NIC:         constNic,
+		}})
+	}
 
-	// 上行
 	go func() {
-		for {
-			tcp, err := g.RecvRaw()
-			require.NoError(t, err)
-			t.Log(tcp)
+		l, err := gonet.ListenTCP(s, tcpip.FullAddress{
+			NIC:  constNic,
+			Addr: constAddr,
+			Port: 80,
+		}, header.IPv4ProtocolNumber)
+		require.NoError(t, err)
 
-			g.SendRaw(tcp)
-		}
+		conn, err := l.Accept()
+		require.NoError(t, err)
+		go func(conn net.Conn) {
+			io.Copy(conn, conn)
+		}(conn)
 	}()
+	time.Sleep(time.Second)
 
-	// 下行
-	_, err = g.SendSeg([]byte("123"))
+	conn, err := gonet.DialTCP(s, tcpip.FullAddress{
+		NIC:  constNic,
+		Addr: constAddr,
+		Port: 80,
+	}, ipv4.ProtocolNumber)
 	require.NoError(t, err)
 
-	time.Sleep(time.Hour)
-}
+	data := []byte("123")
 
-type TCPStackGvisor struct {
-	stack *stack.Stack
-	link  *channel.Endpoint
-	conn  net.Conn
+	_, err = conn.Write(data)
+	require.NoError(t, err)
 
-	inited atomic.Bool
-
-	// useless
-	laddr, raddr tcpip.FullAddress
-	err          error
-
-	rawView *buffer.View
-}
-
-var _ TCPStack = (*TCPStackGvisor)(nil)
-
-const (
-	nicid tcpip.NICID = 11
-)
-
-func NewTCPStackGvisor(lport, rport, mtu uint16) (*TCPStackGvisor, error) {
-	var s = &TCPStackGvisor{
-		laddr: tcpip.FullAddress{
-			NIC:  nicid,
-			Addr: tcpip.AddrFromSlice([]byte{192, 168, 0, 1}),
-			Port: lport,
-		},
-		raddr: tcpip.FullAddress{
-			NIC:  nicid,
-			Addr: tcpip.AddrFromSlice([]byte{192, 168, 0, 2}),
-			Port: rport,
-		},
-	}
-
-	s.stack = stack.New(stack.Options{
-		// todo: link, network层是可以不需要的
-		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol},
-		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol},
-		HandleLocal:        true,
-	})
-	s.link = channel.New(4, uint32(mtu), "")
-	if err := s.stack.CreateNIC(nicid, s.link); err != nil {
-		return nil, errors.New(err.String())
-	}
-
-	s.stack.AddProtocolAddress(nicid, tcpip.ProtocolAddress{
-		Protocol:          header.IPv4ProtocolNumber,
-		AddressWithPrefix: s.laddr.Addr.WithPrefix(),
-	}, stack.AddressProperties{})
-	s.stack.SetRouteTable([]tcpip.Route{{Destination: header.IPv4EmptySubnet, NIC: nicid}})
-
-	return s, nil
-}
-
-func (s *TCPStackGvisor) SendRaw(h header.TCP) (int, error) {
-	if s.inited.CompareAndSwap(false, true) {
-		// accept
-		if s.err != nil {
-			return 0, s.err
-		}
-		go func(s *TCPStackGvisor) {
-			l, err := gonet.ListenTCP(s.stack, s.laddr, ipv4.ProtocolNumber)
-			if err != nil {
-				s.err = err
-				s.inited.Store(false)
-			}
-
-			s.conn, err = l.Accept()
-			if err != nil {
-				s.err = err
-				s.inited.Store(false)
-			}
-		}(s)
-	}
-
-	var pkts stack.PacketBufferList
-	pkts.PushBack(stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(h)}))
-
-	_, err := s.link.WritePackets(pkts)
-	if err != nil {
-		return 0, errors.New(err.String())
-	}
-	return 0, nil
-}
-
-func (s *TCPStackGvisor) RecvSeg(seg []byte) (n int, err error) {
-
-	for s.conn == nil {
-		time.Sleep(time.Millisecond * 100)
-	}
-
-	// todo: 并非真正的seg
-	return s.conn.Read(seg)
-}
-
-func (s *TCPStackGvisor) SendSeg(seg []byte) (n int, err error) {
-	if s.inited.CompareAndSwap(false, true) {
-		// connect
-		if s.err != nil {
-			return 0, s.err
-		}
-		s.conn, s.err = gonet.DialTCPWithBind(context.Background(), s.stack, s.laddr, s.raddr, ipv4.ProtocolNumber)
-		if s.err != nil {
-			s.inited.Store(false)
-			return 0, s.err
-		}
-	}
-
-	return s.conn.Write(seg)
-}
-
-func (s *TCPStackGvisor) RecvRaw() (t header.TCP, err error) {
-	if s.rawView == nil {
-		p := s.link.ReadContext(context.Background())
-
-		s.rawView = p.ToView()
-	}
-
-	ip := header.IPv4(s.rawView.AsSlice())
-	t = header.TCP(ip[ip.HeaderLength():]) // maybe: panic
-
-	s.rawView = s.rawView.Next()
-	return t, s.err
+	n, err := conn.Read(data)
+	require.NoError(t, err)
+	require.Equal(t, data[:n], []byte("123"))
 }

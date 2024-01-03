@@ -1,9 +1,7 @@
 package raw
 
 import (
-	"fmt"
 	"net"
-	"net/netip"
 	"syscall"
 	"time"
 	"unsafe"
@@ -12,26 +10,26 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type RawTCP struct {
+type rawTcpWithBpf struct {
 	laddr, raddr *net.TCPAddr
-	tcpFd        int
+	tcp          *net.TCPListener
 
 	raw *net.IPConn
 }
 
-func BindRawTCP(laddr, raddr *net.TCPAddr) (*RawTCP, error) {
-	var l = &RawTCP{raddr: raddr}
+func NewRawTCP(laddr, raddr *net.TCPAddr) (*rawTcpWithBpf, error) {
+	var r = &rawTcpWithBpf{raddr: raddr}
 	if laddr == nil {
 		laddr = &net.TCPAddr{}
 	}
 
 	var err error
-	if l.raddr == nil {
-		l.raw, err = net.ListenIP("ip:tcp",
+	if r.raddr == nil {
+		r.raw, err = net.ListenIP("ip:tcp",
 			&net.IPAddr{IP: laddr.IP, Zone: laddr.Zone},
 		)
 	} else {
-		l.raw, err = net.DialIP("ip:tcp",
+		r.raw, err = net.DialIP("ip:tcp",
 			&net.IPAddr{IP: laddr.IP, Zone: laddr.Zone},
 			&net.IPAddr{IP: raddr.IP, Zone: raddr.Zone},
 		)
@@ -39,93 +37,58 @@ func BindRawTCP(laddr, raddr *net.TCPAddr) (*RawTCP, error) {
 	if err != nil {
 		return nil, err
 	} else {
-		loc := l.raw.LocalAddr().(*net.IPAddr)
-		l.laddr = &net.TCPAddr{IP: loc.IP, Zone: loc.Zone}
+		loc := r.raw.LocalAddr().(*net.IPAddr)
+		r.laddr = &net.TCPAddr{IP: loc.IP, Port: laddr.Port, Zone: loc.Zone}
 	}
 
-	if err = l.bindLocal(); err != nil {
-		l.raw.Close()
+	// bindLocal, forbid other process use this port and avoid RST by system-stack
+	r.tcp, err = net.ListenTCP("tcp", r.laddr)
+	if err != nil {
+		r.raw.Close()
 		return nil, err
 	}
 
-	if err = l.setBpf(); err != nil {
-		l.raw.Close()
-		unix.Close(l.tcpFd)
+	if err = r.setBpf(); err != nil {
+		r.raw.Close()
+		r.tcp.Close()
 		return nil, err
 	}
 
-	return nil, nil
+	return r, nil
 }
 
-// bindLocal for EADDRINUSE
-func (l *RawTCP) bindLocal() error {
-	nip, ok := netip.AddrFromSlice(l.laddr.IP)
-	if !ok {
-		return fmt.Errorf("invalid local ip address %s", l.laddr.IP)
+func (l *rawTcpWithBpf) setBpf() error {
+	if err := l.setRawBpf(); err != nil {
+		return err
 	}
-
-	var err error
-
-	if nip.Is4() {
-		l.tcpFd, err = unix.Socket(unix.AF_INET, unix.SOCK_STREAM, unix.IPPROTO_TCP)
-		if err != nil {
-			return err
-		}
-
-		err = unix.Bind(l.tcpFd, &unix.SockaddrInet4{Addr: [4]byte(l.laddr.IP), Port: l.laddr.Port})
-		if err != nil {
-			return err
-		} else if l.laddr.Port == 0 {
-			sa, err := unix.Getsockname(l.tcpFd)
-			if err != nil {
-				unix.Close(l.tcpFd)
-				return err
-			}
-			l.laddr.Port = sa.(*unix.SockaddrInet4).Port
-		}
-	} else {
-		l.tcpFd, err = unix.Socket(unix.AF_INET6, unix.SOCK_STREAM, unix.IPPROTO_TCP)
-		if err != nil {
-			return err
-		}
-
-		zoneIdx := 0
-		if l.laddr.Zone != "" {
-			ifi, err := net.InterfaceByName(l.laddr.Zone)
-			if err != nil {
-				return err
-			}
-			zoneIdx = ifi.Index
-		}
-		laddr := &unix.SockaddrInet6{Addr: nip.As16(), Port: l.laddr.Port, ZoneId: uint32(zoneIdx)}
-		if err = unix.Bind(l.tcpFd, laddr); err != nil {
-			return err
-		} else if l.laddr.Port == 0 {
-			sa, err := unix.Getsockname(l.tcpFd)
-			if err != nil {
-				unix.Close(l.tcpFd)
-				return err
-			}
-			l.laddr.Port = sa.(*unix.SockaddrInet6).Port
-		}
-	}
-
-	return nil
+	return l.setTcpBpf()
 }
 
-func (l *RawTCP) setBpf() error {
+func (l *rawTcpWithBpf) setRawBpf() error {
 	var ins = []bpf.Instruction{
-		bpf.LoadExtension{Num: bpf.ExtPayloadOffset},
+		// load ip version
+		bpf.LoadAbsolute{Off: 0, Size: 1},
+		bpf.ALUOpConstant{Op: bpf.ALUOpShiftRight, Val: 4},
+
+		// ipv4
+		bpf.JumpIf{Cond: bpf.JumpNotEqual, Val: 4, SkipTrue: 1},
+		bpf.LoadMemShift{Off: 0},
+
+		// ipv6
+		bpf.JumpIf{Cond: bpf.JumpNotEqual, Val: 6, SkipTrue: 1},
+		bpf.LoadConstant{Dst: bpf.RegX, Val: 40},
 	}
 	if l.raddr != nil {
 		ins = append(ins, []bpf.Instruction{
-			bpf.LoadAbsolute{Off: 0, Size: 2},
+			// source port
+			bpf.LoadIndirect{Off: 0, Size: 2},
 			bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(l.raddr.Port), SkipTrue: 1},
 			bpf.RetConstant{Val: 0},
 		}...)
 	}
+	// destination port
 	ins = append(ins, []bpf.Instruction{
-		bpf.LoadAbsolute{Off: 2, Size: 2},
+		bpf.LoadIndirect{Off: 2, Size: 2},
 		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(l.laddr.Port), SkipTrue: 1},
 		bpf.RetConstant{Val: 0},
 
@@ -133,12 +96,12 @@ func (l *RawTCP) setBpf() error {
 	}...)
 
 	var prog *unix.SockFprog
-	if raw, err := bpf.Assemble(ins); err != nil {
+	if rawIns, err := bpf.Assemble(ins); err != nil {
 		return err
 	} else {
 		prog = &unix.SockFprog{
-			Len:    uint16(len(raw)),
-			Filter: (*unix.SockFilter)(unsafe.Pointer(&raw[0])),
+			Len:    uint16(len(rawIns)),
+			Filter: (*unix.SockFilter)(unsafe.Pointer(&rawIns[0])),
 		}
 	}
 
@@ -158,36 +121,61 @@ func (l *RawTCP) setBpf() error {
 	return nil
 }
 
-func (r *RawTCP) Read(b []byte) (n int, err error) {
+func (l *rawTcpWithBpf) setTcpBpf() error {
+	rawIns, err := bpf.Assemble([]bpf.Instruction{
+		bpf.RetConstant{Val: 0},
+	})
+	if err != nil {
+		return err
+	}
+	prog := &unix.SockFprog{
+		Len:    uint16(len(rawIns)),
+		Filter: (*unix.SockFilter)(unsafe.Pointer(&rawIns[0])),
+	}
+	s, err := l.tcp.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var e error
+	err = s.Control(func(fd uintptr) {
+		e = unix.SetsockoptSockFprog(int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog)
+	})
+	if e != nil {
+		return err
+	}
+	return err
+}
+
+func (r *rawTcpWithBpf) Read(b []byte) (n int, err error) {
 	return r.raw.Read(b)
 }
-func (r *RawTCP) Write(b []byte) (n int, err error) {
+func (r *rawTcpWithBpf) Write(b []byte) (n int, err error) {
 	return r.raw.Write(b)
 }
-func (r *RawTCP) WriteTo(b []byte, ip *net.IPAddr) (n int, err error) {
+func (r *rawTcpWithBpf) WriteTo(b []byte, ip *net.IPAddr) (n int, err error) {
 	return r.raw.WriteToIP(b, ip)
 }
-func (r *RawTCP) Close() error {
+func (r *rawTcpWithBpf) Close() error {
 	var err error
 	if e := r.raw.Close(); err != nil {
 		err = e
 	}
-	if e := unix.Close(r.tcpFd); err != nil {
+	if e := r.tcp.Close(); err != nil {
 		err = e
 	}
 	return err
 }
-func (r *RawTCP) LocalAddr() net.Addr  { return r.laddr }
-func (r *RawTCP) RemoteAddr() net.Addr { return r.raddr }
-func (r *RawTCP) SetDeadline(t time.Time) error {
+func (r *rawTcpWithBpf) LocalAddr() net.Addr  { return r.laddr }
+func (r *rawTcpWithBpf) RemoteAddr() net.Addr { return r.raddr }
+func (r *rawTcpWithBpf) SetDeadline(t time.Time) error {
 	return r.raw.SetDeadline(t)
 }
-func (r *RawTCP) SetReadDeadline(t time.Time) error {
+func (r *rawTcpWithBpf) SetReadDeadline(t time.Time) error {
 	return r.raw.SetReadDeadline(t)
 }
-func (r *RawTCP) SetWriteDeadline(t time.Time) error {
+func (r *rawTcpWithBpf) SetWriteDeadline(t time.Time) error {
 	return r.raw.SetWriteDeadline(t)
 }
-func (r *RawTCP) SyscallConn() (syscall.RawConn, error) {
+func (r *rawTcpWithBpf) SyscallConn() (syscall.RawConn, error) {
 	return r.raw.SyscallConn()
 }
