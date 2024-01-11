@@ -1,4 +1,7 @@
-package raw
+//go:build linux
+// +build linux
+
+package tcp
 
 import (
 	"net"
@@ -10,15 +13,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type rawTcpWithBpf struct {
+type rawTCPWithBpf struct {
 	laddr, raddr *net.TCPAddr
 	tcp          *net.TCPListener
 
 	raw *net.IPConn
 }
 
-func NewRawTCP(laddr, raddr *net.TCPAddr) (*rawTcpWithBpf, error) {
-	var r = &rawTcpWithBpf{raddr: raddr}
+func NewRawWithBPF(laddr, raddr *net.TCPAddr) (*rawTCPWithBpf, error) {
+	var r = &rawTCPWithBpf{raddr: raddr}
 	if laddr == nil {
 		laddr = &net.TCPAddr{}
 	}
@@ -57,14 +60,14 @@ func NewRawTCP(laddr, raddr *net.TCPAddr) (*rawTcpWithBpf, error) {
 	return r, nil
 }
 
-func (l *rawTcpWithBpf) setBpf() error {
+func (l *rawTCPWithBpf) setBpf() error {
 	if err := l.setRawBpf(); err != nil {
 		return err
 	}
 	return l.setTcpBpf()
 }
 
-func (l *rawTcpWithBpf) setRawBpf() error {
+func (l *rawTCPWithBpf) setRawBpf() error {
 	var ins = []bpf.Instruction{
 		// load ip version
 		bpf.LoadAbsolute{Off: 0, Size: 1},
@@ -121,7 +124,7 @@ func (l *rawTcpWithBpf) setRawBpf() error {
 	return nil
 }
 
-func (l *rawTcpWithBpf) setTcpBpf() error {
+func (l *rawTCPWithBpf) setTcpBpf() error {
 	rawIns, err := bpf.Assemble([]bpf.Instruction{
 		bpf.RetConstant{Val: 0},
 	})
@@ -146,16 +149,16 @@ func (l *rawTcpWithBpf) setTcpBpf() error {
 	return err
 }
 
-func (r *rawTcpWithBpf) Read(b []byte) (n int, err error) {
+func (r *rawTCPWithBpf) Read(b []byte) (n int, err error) {
 	return r.raw.Read(b)
 }
-func (r *rawTcpWithBpf) Write(b []byte) (n int, err error) {
+func (r *rawTCPWithBpf) Write(b []byte) (n int, err error) {
 	return r.raw.Write(b)
 }
-func (r *rawTcpWithBpf) WriteTo(b []byte, ip *net.IPAddr) (n int, err error) {
+func (r *rawTCPWithBpf) WriteTo(b []byte, ip *net.IPAddr) (n int, err error) {
 	return r.raw.WriteToIP(b, ip)
 }
-func (r *rawTcpWithBpf) Close() error {
+func (r *rawTCPWithBpf) Close() error {
 	var err error
 	if e := r.raw.Close(); err != nil {
 		err = e
@@ -165,17 +168,17 @@ func (r *rawTcpWithBpf) Close() error {
 	}
 	return err
 }
-func (r *rawTcpWithBpf) LocalAddr() net.Addr  { return r.laddr }
-func (r *rawTcpWithBpf) RemoteAddr() net.Addr { return r.raddr }
-func (r *rawTcpWithBpf) SetDeadline(t time.Time) error {
+func (r *rawTCPWithBpf) LocalAddr() net.Addr  { return r.laddr }
+func (r *rawTCPWithBpf) RemoteAddr() net.Addr { return r.raddr }
+func (r *rawTCPWithBpf) SetDeadline(t time.Time) error {
 	return r.raw.SetDeadline(t)
 }
-func (r *rawTcpWithBpf) SetReadDeadline(t time.Time) error {
+func (r *rawTCPWithBpf) SetReadDeadline(t time.Time) error {
 	return r.raw.SetReadDeadline(t)
 }
-func (r *rawTcpWithBpf) SetWriteDeadline(t time.Time) error {
+func (r *rawTCPWithBpf) SetWriteDeadline(t time.Time) error {
 	return r.raw.SetWriteDeadline(t)
 }
-func (r *rawTcpWithBpf) SyscallConn() (syscall.RawConn, error) {
+func (r *rawTCPWithBpf) SyscallConn() (syscall.RawConn, error) {
 	return r.raw.SyscallConn()
 }
