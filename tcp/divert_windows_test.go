@@ -1,6 +1,7 @@
 package tcp
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -10,7 +11,19 @@ import (
 	"github.com/lysShub/go-divert/embed"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
+	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/checksum"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 )
+
+var dll, loadErr = divert.LoadDivert(embed.DLL64, embed.Sys64)
+
+func init() {
+	if loadErr != nil {
+		panic(loadErr)
+	}
+}
 
 func TestBindLocal(t *testing.T) {
 	{
@@ -41,12 +54,81 @@ func TestBindLocal(t *testing.T) {
 	}
 }
 
-var dll, loadErr = divert.LoadDivert(embed.DLL64, embed.Sys64)
+func TestDivertAutoHandleDF(t *testing.T) {
+	go func() {
+		time.Sleep(time.Second)
 
-func init() {
-	if loadErr != nil {
-		panic(loadErr)
-	}
+		b := buildOutboundIP(t, 1536)
+		addr := &divert.Address{Layer: divert.LAYER_NETWORK, Event: divert.NETWORK_PACKET}
+		addr.SetOutbound(true)
+
+		d, err := dll.Open("false", divert.LAYER_NETWORK, 1, divert.WRITE_ONLY)
+		require.NoError(t, err)
+		defer d.Close()
+		_, err = d.Send(b, addr)
+		require.NoError(t, err)
+	}()
+
+	filter := fmt.Sprintf(
+		"!loopback and outbound and tcp and localAddr=%s and localPort=12345 and remoteAddr=8.8.8.8 and remotePort=19986",
+		locIP,
+	)
+
+	d, err := dll.Open(filter, divert.LAYER_NETWORK, 0, divert.READ_ONLY)
+	require.NoError(t, err)
+	defer d.Close()
+
+	var b = make([]byte, 1536)
+	n, _, err := d.Recv(b)
+	require.NoError(t, err)
+	require.Equal(t, 1536, n)
+}
+
+func buildOutboundIP(t *testing.T, size int) []byte {
+	var b = header.IPv4(make([]byte, size))
+	b.Encode(&header.IPv4Fields{
+		TotalLength: uint16(len(b)),
+		ID:          uint16(time.Now().UnixNano()),
+		Flags:       0,
+		TTL:         64,
+		Protocol:    uint8(tcp.ProtocolNumber),
+		Checksum:    0,
+		SrcAddr:     tcpip.AddrFromSlice(locIP),
+		DstAddr:     tcpip.AddrFromSlice([]byte{8, 8, 8, 8}),
+	})
+	b.SetChecksum(^checksum.Checksum(b[:20], 0))
+	require.True(t, b.IsChecksumValid())
+
+	tcpHdr := header.TCP(b.Payload())
+	tcpHdr.Encode(&header.TCPFields{
+		SrcPort:    12345,
+		DstPort:    19986,
+		SeqNum:     1380 + 369874248,
+		AckNum:     501 + 369874248,
+		DataOffset: 20,
+		Flags:      header.TCPFlagAck | header.TCPFlagPsh,
+		WindowSize: 83,
+		Checksum:   0,
+	})
+	tcpHdr.SetChecksum(^checksum.Checksum(
+		tcpHdr,
+		header.PseudoHeaderChecksum(
+			tcp.ProtocolNumber,
+			b.SourceAddress(),
+			b.DestinationAddress(),
+			uint16(len(tcpHdr)),
+		)),
+	)
+	require.True(t,
+		tcpHdr.IsChecksumValid(
+			b.SourceAddress(),
+			b.DestinationAddress(),
+			checksum.Checksum(tcpHdr.Payload(), 0),
+			uint16(len(tcpHdr.Payload())),
+		),
+	)
+
+	return b
 }
 
 func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
@@ -92,5 +174,4 @@ func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, []byte("hello"), b[:n])
-
 }

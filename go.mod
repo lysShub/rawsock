@@ -18,7 +18,7 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/btree v1.1.2 // indirect
-	github.com/lysShub/go-divert v0.0.0-20240111052550-6e87fed6890b
+	github.com/lysShub/go-divert v0.0.0-20240111095307-2029f48aa46d
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

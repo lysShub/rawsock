@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lysShub/relraw"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -104,7 +105,7 @@ func Test_UsrStack_PingPong(t *testing.T) {
 	require.Equal(t, data[:n], []byte("123"))
 }
 
-func pingPongWithUserStackClient(t *testing.T, raw RawTCP) net.Conn {
+func pingPongWithUserStackClient(t *testing.T, raw relraw.Raw) net.Conn {
 	const nicid tcpip.NICID = 11
 
 	s := stack.New(stack.Options{
@@ -157,7 +158,7 @@ func pingPongWithUserStackClient(t *testing.T, raw RawTCP) net.Conn {
 			ipHdr := header.IPv4(s)
 			ipHdr = sum(ipHdr)
 
-			n, err := raw.Write(ipHdr.Payload())
+			n, err := raw.Write(ipHdr)
 			require.True(
 				t,
 				err == nil || errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF),
@@ -189,7 +190,7 @@ func pingPongWithUserStackClient(t *testing.T, raw RawTCP) net.Conn {
 	return conn
 }
 
-func pingPongWithUserStackServer(t *testing.T, raw RawTCP) net.Listener {
+func pingPongWithUserStackServer(t *testing.T, raw relraw.Raw) net.Listener {
 	return nil
 }
 

@@ -44,6 +44,19 @@ func NewRawWithBPF(laddr, raddr *net.TCPAddr) (*rawTCPWithBpf, error) {
 		r.laddr = &net.TCPAddr{IP: loc.IP, Port: laddr.Port, Zone: loc.Zone}
 	}
 
+	if sc, err := r.raw.SyscallConn(); err != nil {
+		return nil, err
+	} else {
+		e := sc.Control(func(fd uintptr) {
+			err = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_HDRINCL, 1)
+		})
+		if err != nil {
+			return nil, err
+		} else if e != nil {
+			return nil, e
+		}
+	}
+
 	// bindLocal, forbid other process use this port and avoid RST by system-stack
 	r.tcp, err = net.ListenTCP("tcp", r.laddr)
 	if err != nil {

@@ -19,10 +19,6 @@ type rawTCPWithDivert struct {
 	tcp          windows.Handle
 
 	raw *divert.Divert
-
-	// send
-	ipv4  bool
-	ifIdx int
 }
 
 // NewRawWithDivert with divert https://github.com/basil00/Divert
@@ -126,11 +122,9 @@ func (r *rawTCPWithDivert) Read(b []byte) (n int, err error) {
 	return n, err
 }
 func (r *rawTCPWithDivert) Write(b []byte) (n int, err error) {
-	// todo: 构建IP头
 	return r.raw.Send(b, &divert.Address{})
 }
 func (r *rawTCPWithDivert) WriteTo(b []byte, ip *net.IPAddr) (n int, err error) {
-	// todo: 构建IP头
 	return r.raw.Send(b, &divert.Address{})
 }
 
