@@ -17,14 +17,16 @@ import (
 type ipstack struct {
 	hdr []byte
 
-	ip4    bool
-	ip4Id  atomic.Uint32
-	ip4sum uint16
+	ip4           bool
+	ip4Id         atomic.Uint32
+	ip4InitHdrsum uint16
+	psoSum1       uint16
 }
 
-func NewIPStack(laddr, raddr net.IP, proto uint8) (*ipstack, error) {
+// NewIPStack simple ip state machine helper
+func NewIPStack(laddr, raddr net.IP, proto tcpip.TransportProtocolNumber) (*ipstack, error) {
 	switch proto {
-	case uint8(tcp.ProtocolNumber), uint8(udp.ProtocolNumber):
+	case tcp.ProtocolNumber, udp.ProtocolNumber:
 	default:
 		return nil, fmt.Errorf("not support transport protocol number %d", proto)
 	}
@@ -48,15 +50,22 @@ func NewIPStack(laddr, raddr net.IP, proto uint8) (*ipstack, error) {
 		header.IPv4(s.hdr).Encode(&header.IPv4Fields{
 			TOS:            0,
 			TotalLength:    0,
-			ID:             uint16(time.Now().UnixNano()),
+			ID:             0,
 			Flags:          0,
 			FragmentOffset: 0,
 			TTL:            128,
-			Protocol:       proto,
+			Protocol:       uint8(proto),
 			Checksum:       0,
 			SrcAddr:        tcpip.AddrFrom4(l.As4()),
 			DstAddr:        tcpip.AddrFrom4(r.As4()),
 		})
+		s.ip4InitHdrsum = checksum.Checksum(s.hdr, 0)
+		s.psoSum1 = header.PseudoHeaderChecksum(
+			proto,
+			tcpip.AddrFrom4(l.As4()),
+			tcpip.AddrFrom4(r.As4()),
+			0,
+		)
 	} else {
 		s.hdr = make([]byte, header.IPv6MinimumSize)
 
@@ -69,14 +78,18 @@ func NewIPStack(laddr, raddr net.IP, proto uint8) (*ipstack, error) {
 			SrcAddr:           tcpip.AddrFrom16(l.As16()),
 			DstAddr:           tcpip.AddrFrom16(r.As16()),
 		})
-
-		s.ip4sum = checksum.Checksum(s.hdr, 0)
+		s.psoSum1 = header.PseudoHeaderChecksum(
+			proto,
+			tcpip.AddrFrom16(l.As16()),
+			tcpip.AddrFrom16(r.As16()),
+			0,
+		)
 	}
 
 	return s, nil
 }
 
-func (s *ipstack) Size() int {
+func (s *ipstack) Reserve() int {
 	if s.ip4 {
 		return header.IPv4MinimumSize
 	} else {
@@ -84,15 +97,19 @@ func (s *ipstack) Size() int {
 	}
 }
 
-func (s *ipstack) ApplyHeader(b []byte) {
+// AttachHeader attach ip header to b[0:s.Reserve()], return
+// pseudo header checksum
+func (s *ipstack) AttachHeader(b []byte) (psoSum uint16) {
 	copy(b[0:], s.hdr)
 
 	if s.ip4 {
 		id, n := uint16(s.ip4Id.Add(1)), uint16(len(b))
 		header.IPv4(b).SetID(id)
 		header.IPv4(b).SetTotalLength(n)
-		header.IPv4(b).SetChecksum(^(s.ip4sum + id + n))
+		header.IPv4(b).SetChecksum(^checksum.Combine(checksum.Combine(s.ip4InitHdrsum, id), n))
 	} else {
-		header.IPv6(b).SetPayloadLength(uint16(len(b) - s.Size()))
+		header.IPv6(b).SetPayloadLength(uint16(len(b) - s.Reserve()))
 	}
+
+	return checksum.Combine(s.psoSum1, uint16(len(b)-s.Reserve()))
 }

@@ -2,6 +2,7 @@ package tcp
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"io"
 	"net"
@@ -234,4 +235,48 @@ func calcChecksum() func(ipHdr header.IPv4) header.IPv4 {
 		}
 		return ipHdr
 	}
+}
+
+func buildRawTCP(t *testing.T, laddr, raddr *net.TCPAddr, payloadSize int) []byte {
+	s, err := relraw.NewIPStack(laddr.IP, raddr.IP, header.TCPProtocolNumber)
+	require.NoError(t, err)
+
+	var b = make([]byte, s.Reserve()+header.TCPMinimumSize+payloadSize)
+	rand.Read(b[s.Reserve()+header.TCPMinimumSize:])
+
+	ts := uint32(time.Now().UnixNano())
+	tcphdr := header.TCP(b[s.Reserve():])
+	tcphdr.Encode(&header.TCPFields{
+		SrcPort:    uint16(laddr.Port),
+		DstPort:    uint16(raddr.Port),
+		SeqNum:     501 + ts,
+		AckNum:     ts,
+		DataOffset: header.TCPMinimumSize,
+		Flags:      header.TCPFlagAck | header.TCPFlagPsh,
+		WindowSize: 83,
+		Checksum:   0,
+	})
+
+	psoSum := s.AttachHeader(b)
+
+	s1 := header.IPv4(b).Checksum()
+	header.IPv4(b).SetChecksum(0)
+	s2 := header.IPv4(b).CalculateChecksum()
+	s3 := s1 + s2
+	t.Log(s1, s2, s3)
+	header.IPv4(b).SetChecksum(s1)
+
+	tcphdr.SetChecksum(^checksum.Checksum(tcphdr, psoSum))
+
+	require.True(t, header.IPv4(b).IsChecksumValid())
+	require.True(t,
+		tcphdr.IsChecksumValid(
+			tcpip.AddrFromSlice(laddr.IP),
+			tcpip.AddrFromSlice(raddr.IP),
+			checksum.Checksum(tcphdr.Payload(), 0),
+			uint16(len(tcphdr.Payload())),
+		),
+	)
+
+	return b
 }
