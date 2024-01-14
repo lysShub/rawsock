@@ -4,11 +4,13 @@
 package tcp
 
 import (
+	"errors"
 	"net"
 	"syscall"
 	"time"
 	"unsafe"
 
+	"github.com/lysShub/relraw"
 	"golang.org/x/net/bpf"
 	"golang.org/x/sys/unix"
 )
@@ -20,53 +22,54 @@ type rawTCPWithBpf struct {
 	raw *net.IPConn
 }
 
-func NewRawWithBPF(laddr, raddr *net.TCPAddr) (*rawTCPWithBpf, error) {
-	var r = &rawTCPWithBpf{raddr: raddr}
-	if laddr == nil {
-		laddr = &net.TCPAddr{}
+var _ relraw.Raw = (*rawTCPWithBpf)(nil)
+
+func NewRawWithBPF(localAddress, remoteAddress *net.TCPAddr) (*rawTCPWithBpf, error) {
+	var r = &rawTCPWithBpf{raddr: remoteAddress}
+	var err error
+
+	// bindLocal, forbid other process use this port and avoid RST by system-stack
+	r.tcp, err = net.ListenTCP("tcp", localAddress)
+	if err != nil {
+		r.Close()
+		return nil, err
+	} else {
+		r.laddr = r.tcp.Addr().(*net.TCPAddr)
 	}
 
-	var err error
 	if r.raddr == nil {
 		r.raw, err = net.ListenIP("ip:tcp",
-			&net.IPAddr{IP: laddr.IP, Zone: laddr.Zone},
+			&net.IPAddr{IP: r.laddr.IP, Zone: r.laddr.Zone},
 		)
 	} else {
 		r.raw, err = net.DialIP("ip:tcp",
-			&net.IPAddr{IP: laddr.IP, Zone: laddr.Zone},
-			&net.IPAddr{IP: raddr.IP, Zone: raddr.Zone},
+			&net.IPAddr{IP: r.laddr.IP, Zone: r.laddr.Zone},
+			&net.IPAddr{IP: r.raddr.IP, Zone: r.raddr.Zone},
 		)
 	}
 	if err != nil {
+		r.Close()
 		return nil, err
-	} else {
-		loc := r.raw.LocalAddr().(*net.IPAddr)
-		r.laddr = &net.TCPAddr{IP: loc.IP, Port: laddr.Port, Zone: loc.Zone}
 	}
 
 	if sc, err := r.raw.SyscallConn(); err != nil {
+		r.Close()
 		return nil, err
 	} else {
 		e := sc.Control(func(fd uintptr) {
-			err = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_HDRINCL, 1)
+			err = unix.SetsockoptByte(int(fd), unix.IPPROTO_IP, unix.IP_HDRINCL, 1)
 		})
 		if err != nil {
+			r.Close()
 			return nil, err
 		} else if e != nil {
+			r.Close()
 			return nil, e
 		}
 	}
 
-	// bindLocal, forbid other process use this port and avoid RST by system-stack
-	r.tcp, err = net.ListenTCP("tcp", r.laddr)
-	if err != nil {
-		r.raw.Close()
-		return nil, err
-	}
-
 	if err = r.setBpf(); err != nil {
-		r.raw.Close()
-		r.tcp.Close()
+		r.Close()
 		return nil, err
 	}
 
@@ -168,18 +171,16 @@ func (r *rawTCPWithBpf) Read(b []byte) (n int, err error) {
 func (r *rawTCPWithBpf) Write(b []byte) (n int, err error) {
 	return r.raw.Write(b)
 }
-func (r *rawTCPWithBpf) WriteTo(b []byte, ip *net.IPAddr) (n int, err error) {
-	return r.raw.WriteToIP(b, ip)
-}
+
 func (r *rawTCPWithBpf) Close() error {
-	var err error
-	if e := r.raw.Close(); err != nil {
-		err = e
+	var errs []error
+	if r.tcp != nil {
+		errs = append(errs, r.tcp.Close())
 	}
-	if e := r.tcp.Close(); err != nil {
-		err = e
+	if r.raw != nil {
+		errs = append(errs, r.raw.Close())
 	}
-	return err
+	return errors.Join(errs...)
 }
 func (r *rawTCPWithBpf) LocalAddr() net.Addr  { return r.laddr }
 func (r *rawTCPWithBpf) RemoteAddr() net.Addr { return r.raddr }

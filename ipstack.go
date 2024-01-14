@@ -58,6 +58,7 @@ func NewIPStack(laddr, raddr net.IP, proto tcpip.TransportProtocolNumber) (*ipst
 			Checksum:       0,
 			SrcAddr:        tcpip.AddrFrom4(l.As4()),
 			DstAddr:        tcpip.AddrFrom4(r.As4()),
+			Options:        nil,
 		})
 		s.ip4InitHdrsum = checksum.Checksum(s.hdr, 0)
 		s.psoSum1 = header.PseudoHeaderChecksum(

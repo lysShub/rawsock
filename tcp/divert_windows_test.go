@@ -11,9 +11,10 @@ import (
 	"github.com/lysShub/go-divert/embed"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-var dll, loadErr = divert.LoadDivert(embed.DLL64, embed.Sys64)
+var dll, loadErr = divert.LoadDivert(embed.DLL, embed.Sys)
 
 func init() {
 	if loadErr != nil {
@@ -21,7 +22,7 @@ func init() {
 	}
 }
 
-func TestBindLocal(t *testing.T) {
+func Test_Bind_Local(t *testing.T) {
 	{
 		fd, addr, err := bindLocal(nil)
 		require.NotEqual(t, windows.InvalidHandle, fd)
@@ -32,16 +33,13 @@ func TestBindLocal(t *testing.T) {
 	}
 
 	{
-		port := time.Now().UnixNano() % (0xffff - 0xff)
-		if port < 1024 {
-			port += 1024
-		}
+		port := randPort()
 
-		fd, addr, err := bindLocal(&net.TCPAddr{Port: 12345})
+		fd, addr, err := bindLocal(&net.TCPAddr{Port: int(port)})
 		require.NoError(t, err)
-		require.Equal(t, &net.TCPAddr{IP: []byte{0, 0, 0, 0}, Port: 12345}, addr)
+		require.Equal(t, &net.TCPAddr{IP: []byte{0, 0, 0, 0}, Port: int(port)}, addr)
 
-		fd1, addr1, err1 := bindLocal(&net.TCPAddr{Port: 12345})
+		fd1, addr1, err1 := bindLocal(&net.TCPAddr{Port: int(port)})
 		require.Equal(t, windows.InvalidHandle, fd1)
 		require.Nil(t, addr1)
 		require.Error(t, err1)
@@ -50,8 +48,63 @@ func TestBindLocal(t *testing.T) {
 	}
 }
 
-func TestDivertAutoHandleDF(t *testing.T) {
-	src, dst := &net.TCPAddr{IP: locIP, Port: 12345}, &net.TCPAddr{IP: net.ParseIP("8.8.8.8"), Port: 19986}
+func Test_Divert_Filter(t *testing.T) {
+	t.Skip() // todo:
+
+	ips := []net.IP{
+		locIP,
+		net.ParseIP("127.0.0.1"),
+		net.ParseIP("0.0.0.0"),
+	}
+
+	for _, ip := range ips {
+		caddr := &net.TCPAddr{IP: ip, Port: int(randPort())}
+		saddr := &net.TCPAddr{IP: ip, Port: int(randPort())}
+
+		// server
+		go func() {
+			l, err := net.ListenTCP("tcp", saddr)
+			require.NoError(t, err)
+			defer l.Close()
+			conn, err := l.AcceptTCP()
+			require.NoError(t, err)
+			conn.Close()
+		}()
+
+		// capture client's inboud packet
+		go func() {
+			filter := fmt.Sprintf("tcp and localPort=%d and remotePort=%d", saddr.Port, caddr.Port)
+
+			d, err := dll.Open(filter, divert.LAYER_NETWORK, 0, divert.SNIFF)
+			require.NoError(t, err)
+			defer d.Close()
+
+			for {
+				var b = make([]byte, 1536)
+				n, _, err := d.Recv(b)
+				require.NoError(t, err)
+
+				iphdr := header.IPv4(b[:n])
+				tcphdr := header.TCP(iphdr.Payload())
+
+				// fmt.Println(tcphdr.SourcePort(), "-->", tcphdr.DestinationPort())
+				require.Equal(t, uint16(saddr.Port), tcphdr.SourcePort())
+				require.Equal(t, uint16(caddr.Port), tcphdr.DestinationPort())
+			}
+		}()
+
+		// client
+		time.Sleep(time.Second * 3)
+		conn, err := net.DialTCP("tcp", caddr, saddr)
+		require.NoError(t, err)
+		defer conn.Close()
+	}
+
+}
+
+func Test_Divert_Auto_Handle_DF(t *testing.T) {
+	src := &net.TCPAddr{IP: locIP, Port: int(randPort())}
+	dst := &net.TCPAddr{IP: net.ParseIP("8.8.8.8"), Port: int(randPort())}
 
 	go func() {
 		time.Sleep(time.Second)
@@ -84,8 +137,8 @@ func TestDivertAutoHandleDF(t *testing.T) {
 
 func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
 	var (
-		cPort = 12345
-		sPort = 8080
+		cPort = int(randPort())
+		sPort = int(randPort())
 	)
 
 	// server
@@ -102,6 +155,7 @@ func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
 			}()
 		}
 	}()
+	time.Sleep(time.Second)
 
 	// usr-stack with raw-conn
 	var conn net.Conn

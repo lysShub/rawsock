@@ -10,10 +10,10 @@ type Raw interface {
 	Close() error
 
 	// read ip packet
-	Read(b []byte) (n int, err error)
+	Read(ip []byte) (n int, err error)
 
 	// write ip packet
-	Write(b []byte) (n int, err error)
+	Write(ip []byte) (n int, err error)
 
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr

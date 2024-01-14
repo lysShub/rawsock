@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"math/big"
 	"net"
 	"testing"
 	"time"
@@ -106,6 +107,19 @@ func Test_UsrStack_PingPong(t *testing.T) {
 	require.Equal(t, data[:n], []byte("123"))
 }
 
+/*
+*  ┌────────────────────┐                       │
+*  │    gvistor.Stack   │                       │             ┌───────────────────┐
+*  │   ┌────────────┐   │      ┌─────────┐      │             │                   │
+*  │   │            ├───┼─────>│         ├──────┼────────────>┤   net.Listener    │
+*  │   │ link layer │   │      │  RawTCP │      │             │                   │
+*  │   │            │<──┼──────┤         ├<─────┼─────────────┤                   │
+*  │   ├────────────┤   │      └─────────┘      │             │   pong-server     │
+*  │   │            │<──┼────"hello world"      │             │                   │
+*  │   │   gonet    │   │                       │             └───────────────────┘
+*  │   │            ├───┼───>"hello world"      │
+*  └───┴────────────┴───┘                       │
+ */
 func pingPongWithUserStackClient(t *testing.T, raw relraw.Raw) net.Conn {
 	const nicid tcpip.NICID = 11
 
@@ -130,19 +144,18 @@ func pingPongWithUserStackClient(t *testing.T, raw relraw.Raw) net.Conn {
 			var b = make([]byte, 1536)
 			n, err := raw.Read(b)
 
-			require.True(
-				t,
-				err == nil || errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF),
-				err,
-			)
-			if n == 0 {
+			if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
 				break
 			}
+			if err != nil {
+				print()
+			}
+			require.NoError(t, err)
 
-			ipHdr := header.IPv4(b[:n])
-			ipHdr = sum(ipHdr) // todo: maybe loopback?
+			iphdr := header.IPv4(b[:n])
+			iphdr = sum(iphdr) // todo: maybe loopback?
 
-			pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(ipHdr)})
+			pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(iphdr)})
 
 			for !link.IsAttached() {
 				time.Sleep(time.Millisecond * 10)
@@ -156,17 +169,14 @@ func pingPongWithUserStackClient(t *testing.T, raw relraw.Raw) net.Conn {
 			pkb := link.ReadContext(context.Background())
 
 			s := pkb.ToView().AsSlice()
-			ipHdr := header.IPv4(s)
-			ipHdr = sum(ipHdr)
+			iphdr := header.IPv4(s)
+			iphdr = sum(iphdr)
 
-			n, err := raw.Write(ipHdr)
-			require.True(
-				t,
-				err == nil || errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF),
-			)
-			if n == 0 {
+			_, err := raw.Write(iphdr)
+			if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
 				break
 			}
+			require.NoError(t, err)
 		}
 	}()
 
@@ -204,7 +214,7 @@ func calcChecksum() func(ipHdr header.IPv4) header.IPv4 {
 	return func(ipHdr header.IPv4) header.IPv4 {
 		tcpHdr := header.TCP(ipHdr.Payload())
 		if first {
-			calcIP = ipHdr.IsChecksumValid()
+			calcIP = !ipHdr.IsChecksumValid()
 			calcTCP = !tcpHdr.IsChecksumValid(
 				ipHdr.SourceAddress(),
 				ipHdr.DestinationAddress(),
@@ -237,11 +247,11 @@ func calcChecksum() func(ipHdr header.IPv4) header.IPv4 {
 	}
 }
 
-func buildRawTCP(t *testing.T, laddr, raddr *net.TCPAddr, payloadSize int) []byte {
+func buildRawTCP(t *testing.T, laddr, raddr *net.TCPAddr, totalSize int) header.IPv4 {
 	s, err := relraw.NewIPStack(laddr.IP, raddr.IP, header.TCPProtocolNumber)
 	require.NoError(t, err)
 
-	var b = make([]byte, s.Reserve()+header.TCPMinimumSize+payloadSize)
+	var b = make([]byte, totalSize)
 	rand.Read(b[s.Reserve()+header.TCPMinimumSize:])
 
 	ts := uint32(time.Now().UnixNano())
@@ -259,13 +269,6 @@ func buildRawTCP(t *testing.T, laddr, raddr *net.TCPAddr, payloadSize int) []byt
 
 	psoSum := s.AttachHeader(b)
 
-	s1 := header.IPv4(b).Checksum()
-	header.IPv4(b).SetChecksum(0)
-	s2 := header.IPv4(b).CalculateChecksum()
-	s3 := s1 + s2
-	t.Log(s1, s2, s3)
-	header.IPv4(b).SetChecksum(s1)
-
 	tcphdr.SetChecksum(^checksum.Checksum(tcphdr, psoSum))
 
 	require.True(t, header.IPv4(b).IsChecksumValid())
@@ -279,4 +282,19 @@ func buildRawTCP(t *testing.T, laddr, raddr *net.TCPAddr, payloadSize int) []byt
 	)
 
 	return b
+}
+
+func randPort() uint16 {
+	b, err := rand.Int(rand.Reader, big.NewInt(0xff))
+	if err != nil {
+		panic(err)
+	}
+
+	p := uint16(b.Int64())
+	if p < 1024 {
+		p += 1536
+	} else if p > 0xffff-64 {
+		p -= 128
+	}
+	return p
 }

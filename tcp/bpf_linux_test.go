@@ -10,37 +10,11 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-func Test_RawConn_BPF_Filter(t *testing.T) {
+func Test_BPF_Filter(t *testing.T) {
 	var (
-		cPort = 1234
-		sPort = 80
+		saddr = &net.TCPAddr{IP: locIP, Port: int(randPort())}
+		caddr = &net.TCPAddr{IP: locIP, Port: int(randPort())}
 	)
-
-	go func() {
-		l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: locIP, Port: sPort})
-		require.NoError(t, err)
-		defer l.Close()
-		for {
-			conn, err := l.AcceptTCP()
-			require.NoError(t, err)
-			// go io.Copy(conn, conn)
-
-			go func() {
-				defer conn.Close()
-				var b = make([]byte, 1536)
-				for {
-					n, err := conn.Read(b)
-					require.NoError(t, err)
-					_, err = conn.Write(b[:n])
-					require.NoError(t, err)
-				}
-			}()
-		}
-	}()
-
-	raw, err := NewRawWithBPF(&net.TCPAddr{IP: locIP, Port: cPort}, &net.TCPAddr{IP: locIP, Port: sPort})
-	require.NoError(t, err)
-	defer raw.Close()
 
 	// noise
 	go func() {
@@ -48,61 +22,60 @@ func Test_RawConn_BPF_Filter(t *testing.T) {
 		require.NoError(t, err)
 		defer conn.Close()
 
-		for {
-			{
-				b := []byte{
-					0, 81, 4, 210, 250, 124, 53, 58, 0, 0, 0, 0, 160, 2, 114, 0, 180, 15, 0, 0, 2, 4, 5, 180, 1, 1, 8, 10, 112, 173, 219, 47, 0, 0, 0, 0, 1, 3, 3, 7,
-				}
-				_, err := conn.WriteToIP(b, &net.IPAddr{IP: locIP})
-				require.NoError(t, err)
-				time.Sleep(time.Millisecond * 10)
-			}
-			{
-				b := []byte{
-					0, 80, 4, 211, 250, 124, 53, 58, 0, 0, 0, 0, 160, 2, 114, 0, 180, 15, 0, 0, 2, 4, 5, 180, 1, 1, 8, 10, 112, 173, 219, 47, 0, 0, 0, 0, 1, 3, 3, 7,
-				}
-				_, err := conn.WriteToIP(b, &net.IPAddr{IP: locIP})
-				require.NoError(t, err)
-				time.Sleep(time.Millisecond * 10)
-			}
-			{
-				b := []byte{
-					0, 81, 4, 211, 250, 124, 53, 58, 0, 0, 0, 0, 160, 2, 114, 0, 180, 15, 0, 0, 2, 4, 5, 180, 1, 1, 8, 10, 112, 173, 219, 47, 0, 0, 0, 0, 1, 3, 3, 7,
-				}
-				_, err := conn.WriteToIP(b, &net.IPAddr{IP: locIP})
-				require.NoError(t, err)
-				time.Sleep(time.Millisecond * 10)
-			}
+		var noises = [][]byte{
+			buildRawTCP(t, saddr, caddr, 128),
+
+			buildRawTCP(t, &net.TCPAddr{IP: locIP, Port: int(randPort())}, saddr, 128),
+
+			buildRawTCP(t, caddr, &net.TCPAddr{IP: locIP, Port: int(randPort())}, 128),
+
+			buildRawTCP(t,
+				&net.TCPAddr{IP: locIP, Port: int(randPort())},
+				&net.TCPAddr{IP: locIP, Port: int(randPort())},
+				128,
+			),
+		}
+
+		for _, b := range noises {
+
+			_, err := conn.WriteToIP(b, &net.IPAddr{IP: locIP})
+			require.NoError(t, err)
+			time.Sleep(time.Millisecond * 10)
 		}
 	}()
+	time.Sleep(time.Second)
 
-	//
+	raw, err := NewRawWithBPF(saddr, caddr) // todo:
+	require.NoError(t, err)
+	defer raw.Close()
+
 	go func() {
 		time.Sleep(time.Second)
 
-		b := []byte{
-			4, 210, 0, 80, 250, 124, 53, 58, 0, 0, 0, 0, 160, 2, 114, 0, 180, 15, 0, 0, 2, 4, 5, 180, 1, 1, 8, 10, 112, 173, 219, 47, 0, 0, 0, 0, 1, 3, 3, 7,
+		for i := 0; i < 3; i++ {
+			b := buildRawTCP(t, caddr, saddr, 128)
+			_, err = raw.Write(b)
+			require.NoError(t, err)
+			time.Sleep(time.Millisecond * 10)
 		}
-		_, err = raw.Write(b)
-		require.NoError(t, err)
 	}()
 
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		var b = make([]byte, 1536)
 		n, err := raw.Read(b)
 		require.NoError(t, err)
-		ipHdr := header.IPv4(b[:n])
-		tcpHdr := header.TCP(ipHdr.Payload())
+		iphdr := header.IPv4(b[:n])
 
-		require.Equal(t, uint16(80), tcpHdr.SourcePort())
-		require.Equal(t, uint16(1234), tcpHdr.DestinationPort())
+		tcpHdr := header.TCP(iphdr.Payload())
+		require.Equal(t, uint16(caddr.Port), tcpHdr.SourcePort())
+		require.Equal(t, uint16(saddr.Port), tcpHdr.DestinationPort())
 	}
 }
 
 func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
 	var (
-		cPort = 12345
-		sPort = 8080
+		cPort = int(randPort())
+		sPort = int(randPort())
 	)
 
 	// server

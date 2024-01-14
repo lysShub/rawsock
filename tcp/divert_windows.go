@@ -4,6 +4,7 @@
 package tcp
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lysShub/go-divert"
+	"github.com/lysShub/relraw"
 	"golang.org/x/sys/windows"
 )
 
@@ -19,32 +21,62 @@ type rawTCPWithDivert struct {
 	tcp          windows.Handle
 
 	raw *divert.Divert
+
+	outAddr *divert.Address
 }
 
+var _ relraw.Raw = (*rawTCPWithDivert)(nil)
+
 // NewRawWithDivert with divert https://github.com/basil00/Divert
-func NewRawWithDivert(laddr, raddr *net.TCPAddr, dll *divert.DivertDLL) (*rawTCPWithDivert, error) {
-	var r = &rawTCPWithDivert{raddr: raddr}
+func NewRawWithDivert(localAddress, remoteAddres *net.TCPAddr, dll *divert.DivertDLL) (*rawTCPWithDivert, error) {
+	var r = &rawTCPWithDivert{
+		raddr:   remoteAddres,
+		outAddr: &divert.Address{Layer: divert.LAYER_NETWORK, Event: divert.NETWORK_PACKET},
+	}
 	var err error
+	r.outAddr.SetOutbound(true)
 
 	// bindLocal, forbid other process use this port
-	r.tcp, r.laddr, err = bindLocal(laddr)
+	r.tcp, r.laddr, err = bindLocal(localAddress)
 	if err != nil {
+		r.Close()
 		return nil, err
 	}
 
 	var filter string
+	// ref: https://reqrypt.org/windivert-doc.html#divert_open
+	// note that Windows considers any packet originating from, and destined to, the current machine to be a
+	// loopback packet, so loopback packets are not limited to localhost addresses. Note that WinDivert considers
+	// loopback packets to be outbound only, and will not capture loopback packets on the inbound path.
 	if r.raddr == nil {
-		filter = fmt.Sprintf(
-			"inbound and tcp and localPort=%d and localAddr=%s",
-			r.laddr.Port, r.laddr.String(),
-		)
+		if r.laddr.IP.IsLoopback() {
+			// 127.x.x.x only recv loopback packet
+			filter = fmt.Sprintf(
+				"tcp and remotePort=%d and remoteAddr=%s",
+				r.laddr.Port, r.laddr.String(),
+			)
+		} else {
+			filter = fmt.Sprintf(
+				"(!loopback and tcp and localPort=%d and localAddr=%s) or (loopback and tcp and remotePort=%d and remoteAddr=%s)",
+				r.laddr.Port, r.laddr.String(),
+				r.laddr.Port, r.laddr.String(),
+			)
+		}
 	} else {
-		filter = fmt.Sprintf(
-			"inbound and tcp and localPort=%d and localAddr=%s and remotePort=%d and remoteAddr=%s",
-			r.laddr.Port, r.laddr.IP.String(), r.raddr.Port, r.raddr.IP.String(),
-		)
+		if isWindowsLoopback(r.laddr.IP) && isWindowsLoopback(r.raddr.IP) {
+			filter = fmt.Sprintf(
+				"tcp and localPort=%d and localAddr=%s and remotePort=%d and remoteAddr=%s",
+				r.raddr.Port, r.raddr.IP.String(), r.laddr.Port, r.laddr.IP.String(),
+			)
+		} else {
+			filter = fmt.Sprintf(
+				"tcp and localPort=%d and localAddr=%s and remotePort=%d and remoteAddr=%s",
+				r.raddr.Port, r.raddr.IP.String(), r.laddr.Port, r.laddr.IP.String(),
+			)
+		}
 	}
 	if r.raw, err = dll.Open(filter, divert.LAYER_NETWORK, 0, 0); err != nil {
+		r.Close()
 		return nil, err
 	}
 
@@ -114,7 +146,50 @@ func bindLocal(laddr *net.TCPAddr) (windows.Handle, *net.TCPAddr, error) {
 	}
 }
 
-func (r *rawTCPWithDivert) Close() error         { return r.raw.Close() }
+func isWindowsLoopback(ip net.IP) bool {
+	if ip.IsLoopback() {
+		return true
+	} else if ip.Equal(net.IPv4zero) || ip.Equal(net.IPv6zero) {
+		return true
+	}
+
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return false
+	}
+	for _, i := range ifs {
+		addrs, err := i.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			switch a := addr.(type) {
+			case *net.IPAddr:
+				if a.IP.Equal(ip) {
+					return true
+				}
+			case *net.IPNet:
+				if a.Contains(ip) {
+					return true
+				}
+			default:
+			}
+		}
+	}
+	return false
+}
+
+func (r *rawTCPWithDivert) Close() error {
+	var errs []error
+
+	if r.raw != nil {
+		errs = append(errs, r.raw.Close())
+	}
+	if r.tcp != 0 {
+		errs = append(errs, r.raw.Close())
+	}
+	return errors.Join(errs...)
+}
 func (r *rawTCPWithDivert) LocalAddr() net.Addr  { return r.laddr }
 func (r *rawTCPWithDivert) RemoteAddr() net.Addr { return r.raddr }
 func (r *rawTCPWithDivert) Read(b []byte) (n int, err error) {
@@ -122,10 +197,7 @@ func (r *rawTCPWithDivert) Read(b []byte) (n int, err error) {
 	return n, err
 }
 func (r *rawTCPWithDivert) Write(b []byte) (n int, err error) {
-	return r.raw.Send(b, &divert.Address{})
-}
-func (r *rawTCPWithDivert) WriteTo(b []byte, ip *net.IPAddr) (n int, err error) {
-	return r.raw.Send(b, &divert.Address{})
+	return r.raw.Send(b, r.outAddr)
 }
 
 func (r *rawTCPWithDivert) SetDeadline(t time.Time) error {
