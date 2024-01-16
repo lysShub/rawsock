@@ -15,6 +15,40 @@ import (
 )
 
 type IPStack struct {
+	tcp *ipStack
+	udp *ipStack
+}
+
+// NewIPStack simple ip state machine helper
+func NewIPStack(laddr, raddr net.IP) (*IPStack, error) {
+	var s = &IPStack{}
+
+	var err error
+	s.tcp, err = newIPStack(laddr, raddr, header.TCPProtocolNumber)
+	if err != nil {
+		return nil, err
+	}
+	s.udp, err = newIPStack(laddr, raddr, header.UDPProtocolNumber)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// AttachHeader attach ip header to b[0: header.IPvxMinimumSize], return
+// pseudo header checksum
+func (s *IPStack) AttachHeader(b []byte, proto tcpip.TransportProtocolNumber) (psoSum uint16) {
+	switch proto {
+	case header.TCPProtocolNumber:
+		return s.tcp.attachHeader(b)
+	case header.UDPProtocolNumber:
+		return s.udp.attachHeader(b)
+	default:
+		panic("impossible")
+	}
+}
+
+type ipStack struct {
 	hdr []byte
 
 	ip4           bool
@@ -23,15 +57,14 @@ type IPStack struct {
 	psoSum1       uint16
 }
 
-// NewIPStack simple ip state machine helper
-func NewIPStack(laddr, raddr net.IP, proto tcpip.TransportProtocolNumber) (*IPStack, error) {
+func newIPStack(laddr, raddr net.IP, proto tcpip.TransportProtocolNumber) (*ipStack, error) {
 	switch proto {
 	case tcp.ProtocolNumber, udp.ProtocolNumber:
 	default:
 		return nil, fmt.Errorf("not support transport protocol number %d", proto)
 	}
 
-	var s = &IPStack{}
+	var s = &ipStack{}
 	s.ip4Id.Store(uint32(time.Now().UnixNano()))
 
 	l, ok := netip.AddrFromSlice(laddr)
@@ -90,7 +123,7 @@ func NewIPStack(laddr, raddr net.IP, proto tcpip.TransportProtocolNumber) (*IPSt
 	return s, nil
 }
 
-func (s *IPStack) Reserve() int {
+func (s *ipStack) reserve() int {
 	if s.ip4 {
 		return header.IPv4MinimumSize
 	} else {
@@ -100,7 +133,7 @@ func (s *IPStack) Reserve() int {
 
 // AttachHeader attach ip header to b[0:s.Reserve()], return
 // pseudo header checksum
-func (s *IPStack) AttachHeader(b []byte) (psoSum uint16) {
+func (s *ipStack) attachHeader(b []byte) (psoSum uint16) {
 	copy(b[0:], s.hdr)
 
 	if s.ip4 {
@@ -109,8 +142,8 @@ func (s *IPStack) AttachHeader(b []byte) (psoSum uint16) {
 		header.IPv4(b).SetTotalLength(n)
 		header.IPv4(b).SetChecksum(^checksum.Combine(checksum.Combine(s.ip4InitHdrsum, id), n))
 	} else {
-		header.IPv6(b).SetPayloadLength(uint16(len(b) - s.Reserve()))
+		header.IPv6(b).SetPayloadLength(uint16(len(b) - s.reserve()))
 	}
 
-	return checksum.Combine(s.psoSum1, uint16(len(b)-s.Reserve()))
+	return checksum.Combine(s.psoSum1, uint16(len(b)-s.reserve()))
 }

@@ -11,15 +11,15 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-func TestIPv4Stack(t *testing.T) {
+func Test_IPv4_TCP_Stack(t *testing.T) {
 	src, dst := net.IP{127, 0, 0, 1}, net.ParseIP("8.8.8.8")
-	s, err := NewIPStack(src, dst, header.TCPProtocolNumber)
+	s, err := NewIPStack(src, dst)
 	require.NoError(t, err)
 
 	var buildTCP = func(n int) []byte {
 		var b = make([]byte, n)
 		ts := uint32(time.Now().UnixMilli())
-		header.TCP(b[s.Reserve():]).Encode(&header.TCPFields{
+		header.TCP(b[header.IPv4MinimumSize:]).Encode(&header.TCPFields{
 			SrcPort:    12345,
 			DstPort:    19986,
 			SeqNum:     1380 + ts,
@@ -37,7 +37,7 @@ func TestIPv4Stack(t *testing.T) {
 	for i := 0; i < 64; i++ {
 		b := buildTCP(ns[i%len(ns)])
 
-		psoSum := s.AttachHeader(b)
+		psoSum := s.AttachHeader(b, header.TCPProtocolNumber)
 		iphdr := header.IPv4(b)
 		tcphdr := header.TCP(iphdr.Payload())
 

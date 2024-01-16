@@ -248,14 +248,14 @@ func calcChecksum() func(ipHdr header.IPv4) header.IPv4 {
 }
 
 func buildRawTCP(t *testing.T, laddr, raddr *net.TCPAddr, totalSize int) header.IPv4 {
-	s, err := relraw.NewIPStack(laddr.IP, raddr.IP, header.TCPProtocolNumber)
+	s, err := relraw.NewIPStack(laddr.IP, raddr.IP)
 	require.NoError(t, err)
 
 	var b = make([]byte, totalSize)
-	rand.Read(b[s.Reserve()+header.TCPMinimumSize:])
+	rand.Read(b[header.IPv4MinimumSize+header.TCPMinimumSize:])
 
 	ts := uint32(time.Now().UnixNano())
-	tcphdr := header.TCP(b[s.Reserve():])
+	tcphdr := header.TCP(b[header.IPv4MinimumSize:])
 	tcphdr.Encode(&header.TCPFields{
 		SrcPort:    uint16(laddr.Port),
 		DstPort:    uint16(raddr.Port),
@@ -267,7 +267,7 @@ func buildRawTCP(t *testing.T, laddr, raddr *net.TCPAddr, totalSize int) header.
 		Checksum:   0,
 	})
 
-	psoSum := s.AttachHeader(b)
+	psoSum := s.AttachHeader(b, header.TCPProtocolNumber)
 
 	tcphdr.SetChecksum(^checksum.Checksum(tcphdr, psoSum))
 
