@@ -14,7 +14,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 )
 
-type ipstack struct {
+type IPStack struct {
 	hdr []byte
 
 	ip4           bool
@@ -24,14 +24,14 @@ type ipstack struct {
 }
 
 // NewIPStack simple ip state machine helper
-func NewIPStack(laddr, raddr net.IP, proto tcpip.TransportProtocolNumber) (*ipstack, error) {
+func NewIPStack(laddr, raddr net.IP, proto tcpip.TransportProtocolNumber) (*IPStack, error) {
 	switch proto {
 	case tcp.ProtocolNumber, udp.ProtocolNumber:
 	default:
 		return nil, fmt.Errorf("not support transport protocol number %d", proto)
 	}
 
-	var s = &ipstack{}
+	var s = &IPStack{}
 	s.ip4Id.Store(uint32(time.Now().UnixNano()))
 
 	l, ok := netip.AddrFromSlice(laddr)
@@ -90,7 +90,7 @@ func NewIPStack(laddr, raddr net.IP, proto tcpip.TransportProtocolNumber) (*ipst
 	return s, nil
 }
 
-func (s *ipstack) Reserve() int {
+func (s *IPStack) Reserve() int {
 	if s.ip4 {
 		return header.IPv4MinimumSize
 	} else {
@@ -100,7 +100,7 @@ func (s *ipstack) Reserve() int {
 
 // AttachHeader attach ip header to b[0:s.Reserve()], return
 // pseudo header checksum
-func (s *ipstack) AttachHeader(b []byte) (psoSum uint16) {
+func (s *IPStack) AttachHeader(b []byte) (psoSum uint16) {
 	copy(b[0:], s.hdr)
 
 	if s.ip4 {
