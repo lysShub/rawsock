@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -23,14 +24,14 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 )
 
-var locIP = func() net.IP {
+var locIP = func() netip.Addr {
 	c, _ := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 53})
-	return (c.LocalAddr().(*net.UDPAddr)).IP
+	return netip.MustParseAddrPort(c.LocalAddr().String()).Addr()
 }()
 
 func Test_UsrStack_PingPong(t *testing.T) {
 	const constNic tcpip.NICID = 123
-	var constAddr = tcpip.AddrFromSlice(locIP)
+	var constAddr = tcpip.AddrFromSlice(locIP.AsSlice())
 
 	var s *stack.Stack
 	{
@@ -134,7 +135,7 @@ func pingPongWithUserStackClient(t *testing.T, raw relraw.Raw) net.Conn {
 	}
 	s.AddProtocolAddress(nicid, tcpip.ProtocolAddress{
 		Protocol:          header.IPv4ProtocolNumber,
-		AddressWithPrefix: tcpip.AddrFromSlice(locIP).WithPrefix(),
+		AddressWithPrefix: tcpip.AddrFromSlice(locIP.AsSlice()).WithPrefix(),
 	}, stack.AddressProperties{})
 	s.SetRouteTable([]tcpip.Route{{Destination: header.IPv4EmptySubnet, NIC: nicid}})
 
@@ -247,8 +248,8 @@ func calcChecksum() func(ipHdr header.IPv4) header.IPv4 {
 	}
 }
 
-func buildRawTCP(t *testing.T, laddr, raddr *net.TCPAddr, totalSize int) header.IPv4 {
-	s, err := relraw.NewIPStack(laddr.IP, raddr.IP)
+func buildRawTCP(t *testing.T, laddr, raddr netip.AddrPort, totalSize int) header.IPv4 {
+	s, err := relraw.NewIPStack(laddr.Addr(), raddr.Addr())
 	require.NoError(t, err)
 
 	var b = make([]byte, totalSize)
@@ -257,8 +258,8 @@ func buildRawTCP(t *testing.T, laddr, raddr *net.TCPAddr, totalSize int) header.
 	ts := uint32(time.Now().UnixNano())
 	tcphdr := header.TCP(b[header.IPv4MinimumSize:])
 	tcphdr.Encode(&header.TCPFields{
-		SrcPort:    uint16(laddr.Port),
-		DstPort:    uint16(raddr.Port),
+		SrcPort:    uint16(laddr.Port()),
+		DstPort:    uint16(raddr.Port()),
 		SeqNum:     501 + ts,
 		AckNum:     ts,
 		DataOffset: header.TCPMinimumSize,
@@ -274,8 +275,8 @@ func buildRawTCP(t *testing.T, laddr, raddr *net.TCPAddr, totalSize int) header.
 	require.True(t, header.IPv4(b).IsChecksumValid())
 	require.True(t,
 		tcphdr.IsChecksumValid(
-			tcpip.AddrFromSlice(laddr.IP),
-			tcpip.AddrFromSlice(raddr.IP),
+			tcpip.AddrFromSlice(laddr.Addr().AsSlice()),
+			tcpip.AddrFromSlice(raddr.Addr().AsSlice()),
 			checksum.Checksum(tcphdr.Payload(), 0),
 			uint16(len(tcphdr.Payload())),
 		),

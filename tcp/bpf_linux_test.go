@@ -3,6 +3,7 @@ package tcp
 import (
 	"io"
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -12,40 +13,43 @@ import (
 
 func Test_BPF_Filter(t *testing.T) {
 	var (
-		saddr = &net.TCPAddr{IP: locIP, Port: int(randPort())}
-		caddr = &net.TCPAddr{IP: locIP, Port: int(randPort())}
+		saddr = netip.AddrPortFrom(locIP, randPort())
+		caddr = netip.AddrPortFrom(locIP, randPort())
 	)
 
 	// noise
 	go func() {
-		conn, err := net.ListenIP("ip:tcp", &net.IPAddr{IP: locIP})
+		conn, err := net.ListenIP("ip:tcp", &net.IPAddr{IP: locIP.AsSlice()})
 		require.NoError(t, err)
 		defer conn.Close()
 
 		var noises = [][]byte{
 			buildRawTCP(t, saddr, caddr, 128),
 
-			buildRawTCP(t, &net.TCPAddr{IP: locIP, Port: int(randPort())}, saddr, 128),
+			buildRawTCP(t, netip.AddrPortFrom(locIP, randPort()), saddr, 128),
 
-			buildRawTCP(t, caddr, &net.TCPAddr{IP: locIP, Port: int(randPort())}, 128),
+			buildRawTCP(t, caddr, netip.AddrPortFrom(locIP, randPort()), 128),
 
 			buildRawTCP(t,
-				&net.TCPAddr{IP: locIP, Port: int(randPort())},
-				&net.TCPAddr{IP: locIP, Port: int(randPort())},
+				netip.AddrPortFrom(locIP, randPort()),
+				netip.AddrPortFrom(locIP, randPort()),
 				128,
 			),
 		}
 
 		for _, b := range noises {
 
-			_, err := conn.WriteToIP(b, &net.IPAddr{IP: locIP})
+			_, err := conn.WriteToIP(b, &net.IPAddr{IP: locIP.AsSlice()})
 			require.NoError(t, err)
 			time.Sleep(time.Millisecond * 10)
 		}
 	}()
 	time.Sleep(time.Second)
 
-	raw, err := NewRawWithBPF(saddr, caddr) // todo:
+	raw, err := NewRawWithBPF(
+		&net.TCPAddr{IP: saddr.Addr().AsSlice(), Port: int(saddr.Port())},
+		&net.TCPAddr{IP: caddr.Addr().AsSlice(), Port: int(caddr.Port())},
+	)
 	require.NoError(t, err)
 	defer raw.Close()
 
@@ -67,8 +71,8 @@ func Test_BPF_Filter(t *testing.T) {
 		iphdr := header.IPv4(b[:n])
 
 		tcpHdr := header.TCP(iphdr.Payload())
-		require.Equal(t, uint16(caddr.Port), tcpHdr.SourcePort())
-		require.Equal(t, uint16(saddr.Port), tcpHdr.DestinationPort())
+		require.Equal(t, caddr.Port(), tcpHdr.SourcePort())
+		require.Equal(t, saddr.Port(), tcpHdr.DestinationPort())
 	}
 }
 
@@ -80,7 +84,7 @@ func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
 
 	// server
 	go func() {
-		l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: locIP, Port: sPort})
+		l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: locIP.AsSlice(), Port: sPort})
 		require.NoError(t, err)
 		defer l.Close()
 		for {
@@ -96,7 +100,10 @@ func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
 	// usr-stack with raw-conn
 	var conn net.Conn
 	{
-		raw, err := NewRawWithBPF(&net.TCPAddr{IP: locIP, Port: cPort}, &net.TCPAddr{IP: locIP, Port: sPort})
+		raw, err := NewRawWithBPF(
+			&net.TCPAddr{IP: locIP.AsSlice(), Port: cPort},
+			&net.TCPAddr{IP: locIP.AsSlice(), Port: sPort},
+		)
 		require.NoError(t, err)
 		defer raw.Close()
 		conn = pingPongWithUserStackClient(t, raw)

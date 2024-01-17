@@ -2,148 +2,215 @@ package relraw
 
 import (
 	"fmt"
-	"net"
+	"math/rand"
 	"net/netip"
-	"sync/atomic"
 	"time"
 
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
-	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
-	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
+	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
+	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 )
 
 type IPStack struct {
-	tcp *ipStack
-	udp *ipStack
+	laddr, raddr  tcpip.Address
+	addrsChecksum uint16
+
+	networkProto tcpip.NetworkProtocolNumber
+	ip4IdRander  *rand.Rand
 }
 
 // NewIPStack simple ip state machine helper
-func NewIPStack(laddr, raddr net.IP) (*IPStack, error) {
+func NewIPStack(laddr, raddr netip.Addr) (*IPStack, error) {
 	var s = &IPStack{}
 
-	var err error
-	s.tcp, err = newIPStack(laddr, raddr, header.TCPProtocolNumber)
-	if err != nil {
-		return nil, err
+	if !laddr.IsValid() {
+		return nil, fmt.Errorf("invalid ip address %s", laddr.String())
+	} else {
+		s.laddr = tcpip.AddrFromSlice(laddr.AsSlice())
 	}
-	s.udp, err = newIPStack(laddr, raddr, header.UDPProtocolNumber)
-	if err != nil {
-		return nil, err
+	if !raddr.IsValid() {
+		return nil, fmt.Errorf("invalid ip address %s", raddr.String())
+	} else {
+		s.raddr = tcpip.AddrFromSlice(raddr.AsSlice())
 	}
+
+	if laddr.Is4() && raddr.Is4() {
+		s.networkProto = ipv4.ProtocolNumber
+	} else if laddr.Is6() && raddr.Is6() {
+		s.networkProto = ipv6.ProtocolNumber
+	} else {
+		return s, fmt.Errorf("invalid ip address from %s to %s", laddr, raddr)
+	}
+	s.addrsChecksum = addrsChecksum(s.laddr, s.raddr)
+	s.ip4IdRander = rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	return s, nil
 }
 
-// AttachHeader attach ip header to b[0: header.IPvxMinimumSize], return
-// pseudo header checksum
-func (s *IPStack) AttachHeader(b []byte, proto tcpip.TransportProtocolNumber) (psoSum uint16) {
-	switch proto {
-	case header.TCPProtocolNumber:
-		return s.tcp.attachHeader(b)
-	case header.UDPProtocolNumber:
-		return s.udp.attachHeader(b)
+func addrsChecksum(addr1, addr2 tcpip.Address) uint16 {
+	return checksum.Combine(
+		checksum.Checksum(addr1.AsSlice(), 0),
+		checksum.Checksum(addr2.AsSlice(), 0),
+	)
+}
+
+func (s *IPStack) AttachHeaderSize() int {
+	switch s.networkProto {
+	case header.IPv4ProtocolNumber:
+		return header.IPv4MinimumSize
+	case header.IPv6ProtocolNumber:
+		return header.IPv6MinimumSize
 	default:
-		panic("impossible")
+		return 0
 	}
 }
 
-type ipStack struct {
-	hdr []byte
-
-	ip4           bool
-	ip4Id         atomic.Uint32
-	ip4InitHdrsum uint16
-	psoSum1       uint16
+func (s *IPStack) NetworkProtocolNumber() tcpip.NetworkProtocolNumber {
+	return s.networkProto
 }
 
-func newIPStack(laddr, raddr net.IP, proto tcpip.TransportProtocolNumber) (*ipStack, error) {
-	switch proto {
-	case tcp.ProtocolNumber, udp.ProtocolNumber:
-	default:
-		return nil, fmt.Errorf("not support transport protocol number %d", proto)
-	}
+func (s *IPStack) AttachHeader(ip []byte, proto tcpip.TransportProtocolNumber) (psoSum uint16) {
+	var payloadLen uint16
+	switch s.networkProto {
+	case header.IPv4ProtocolNumber:
+		iphdr := header.IPv4(ip)
 
-	var s = &ipStack{}
-	s.ip4Id.Store(uint32(time.Now().UnixNano()))
-
-	l, ok := netip.AddrFromSlice(laddr)
-	if !ok {
-		return nil, fmt.Errorf("invalid ip address %s", laddr.String())
-	}
-	r, ok := netip.AddrFromSlice(raddr)
-	if !ok {
-		return nil, fmt.Errorf("invalid ip address %s", raddr.String())
-	}
-
-	if l.Is4() {
-		s.ip4 = true
-		s.hdr = make([]byte, header.IPv4MinimumSize)
-
-		header.IPv4(s.hdr).Encode(&header.IPv4Fields{
+		iphdr.Encode(&header.IPv4Fields{
 			TOS:            0,
-			TotalLength:    0,
-			ID:             0,
+			TotalLength:    uint16(len(iphdr)),
+			ID:             uint16(s.ip4IdRander.Uint32()),
 			Flags:          0,
 			FragmentOffset: 0,
 			TTL:            128,
 			Protocol:       uint8(proto),
 			Checksum:       0,
-			SrcAddr:        tcpip.AddrFrom4(l.As4()),
-			DstAddr:        tcpip.AddrFrom4(r.As4()),
+			SrcAddr:        s.laddr,
+			DstAddr:        s.raddr,
 			Options:        nil,
 		})
-		s.ip4InitHdrsum = checksum.Checksum(s.hdr, 0)
-		s.psoSum1 = header.PseudoHeaderChecksum(
-			proto,
-			tcpip.AddrFrom4(l.As4()),
-			tcpip.AddrFrom4(r.As4()),
-			0,
-		)
-	} else {
-		s.hdr = make([]byte, header.IPv6MinimumSize)
+		iphdr.SetChecksum(^checksum.Checksum(iphdr[:12], s.addrsChecksum))
 
-		header.IPv6(s.hdr).Encode(&header.IPv6Fields{
+		payloadLen = iphdr.PayloadLength()
+	case header.IPv6ProtocolNumber:
+		iphdr := header.IPv6(ip)
+
+		iphdr.Encode(&header.IPv6Fields{
 			TrafficClass:      0,
 			FlowLabel:         0,
-			PayloadLength:     0,
-			TransportProtocol: tcpip.TransportProtocolNumber(proto),
+			PayloadLength:     uint16(len(ip) - header.IPv6MinimumSize),
+			TransportProtocol: proto,
 			HopLimit:          128,
-			SrcAddr:           tcpip.AddrFrom16(l.As16()),
-			DstAddr:           tcpip.AddrFrom16(r.As16()),
+			SrcAddr:           s.laddr,
+			DstAddr:           s.raddr,
 		})
-		s.psoSum1 = header.PseudoHeaderChecksum(
-			proto,
-			tcpip.AddrFrom16(l.As16()),
-			tcpip.AddrFrom16(r.As16()),
-			0,
-		)
+
+		payloadLen = iphdr.PayloadLength()
+	default:
+		return 0
 	}
 
-	return s, nil
-}
-
-func (s *ipStack) reserve() int {
-	if s.ip4 {
-		return header.IPv4MinimumSize
-	} else {
-		return header.IPv6MinimumSize
+	psoSum = checksum.Combine(s.addrsChecksum, payloadLen)
+	switch proto {
+	case header.TCPProtocolNumber:
+		return checksum.Combine(psoSum, uint16(header.TCPProtocolNumber))
+	case header.UDPProtocolNumber:
+		return checksum.Combine(psoSum, uint16(header.UDPProtocolNumber))
+	default:
+		return 0
 	}
 }
 
-// AttachHeader attach ip header to b[0:s.Reserve()], return
-// pseudo header checksum
-func (s *ipStack) attachHeader(b []byte) (psoSum uint16) {
-	copy(b[0:], s.hdr)
+func (s *IPStack) UpdateHeader(ip []byte) []byte {
+	var (
+		attached       bool
+		payload        []byte
+		oldsum, newsum uint16
+		proto          tcpip.TransportProtocolNumber
+	)
+	switch header.IPVersion(ip) {
+	case 4:
+		proto = header.IPv4(ip).TransportProtocol()
 
-	if s.ip4 {
-		id, n := uint16(s.ip4Id.Add(1)), uint16(len(b))
-		header.IPv4(b).SetID(id)
-		header.IPv4(b).SetTotalLength(n)
-		header.IPv4(b).SetChecksum(^checksum.Combine(checksum.Combine(s.ip4InitHdrsum, id), n))
-	} else {
-		header.IPv6(b).SetPayloadLength(uint16(len(b) - s.reserve()))
+		if s.networkProto != header.IPv4ProtocolNumber {
+			attached = true
+			oldsum = header.PseudoHeaderChecksum(
+				header.IPv4(ip).TransportProtocol(),
+				header.IPv4(ip).SourceAddress(),
+				header.IPv4(ip).DestinationAddress(),
+				header.IPv4(ip).PayloadLength(),
+			)
+
+			ip = setPrefixBytes(ip, int(header.IPv4(ip).HeaderLength()), s.AttachHeaderSize())
+			newsum = s.AttachHeader(ip, proto)
+		}
+	case 6:
+		proto = header.IPv6(ip).TransportProtocol()
+
+		if s.networkProto != header.IPv6ProtocolNumber {
+			attached = true
+			oldsum = header.PseudoHeaderChecksum(
+				header.IPv6(ip).TransportProtocol(),
+				header.IPv6(ip).SourceAddress(),
+				header.IPv6(ip).DestinationAddress(),
+				header.IPv6(ip).PayloadLength(),
+			)
+
+			ip = setPrefixBytes(ip, header.IPv6MinimumSize, s.AttachHeaderSize())
+			newsum = s.AttachHeader(ip, proto)
+		}
+	default:
+		return ip
 	}
 
-	return checksum.Combine(s.psoSum1, uint16(len(b)-s.reserve()))
+	switch s.networkProto {
+	case header.IPv4ProtocolNumber:
+		payload = header.IPv4(ip).Payload()
+		if !attached {
+			oldsum = addrsChecksum(
+				header.IPv4(ip).SourceAddress(),
+				header.IPv4(ip).DestinationAddress(),
+			)
+			header.IPv4(ip).SetSourceAddressWithChecksumUpdate(s.laddr)
+			header.IPv4(ip).SetDestinationAddressWithChecksumUpdate(s.raddr)
+			newsum = s.addrsChecksum
+		}
+	case header.IPv6ProtocolNumber:
+		payload = header.IPv6(ip).Payload()
+		if !attached {
+			oldsum = addrsChecksum(
+				header.IPv6(ip).SourceAddress(),
+				header.IPv6(ip).DestinationAddress(),
+			)
+			header.IPv6(ip).SetSourceAddress(s.laddr)
+			header.IPv6(ip).SetDestinationAddress(s.raddr)
+			newsum = s.addrsChecksum
+		}
+	default:
+		return ip
+	}
+
+	switch proto {
+	case header.TCPProtocolNumber:
+		tcphdr := header.TCP(payload)
+		sum := checksum.Combine(checksum.Combine(^tcphdr.Checksum(), ^oldsum), newsum)
+		tcphdr.SetChecksum(^sum)
+	case header.UDPProtocolNumber:
+		udphdr := header.UDP(payload)
+		sum := checksum.Combine(checksum.Combine(^udphdr.Checksum(), ^oldsum), newsum)
+		udphdr.SetChecksum(^sum)
+	default:
+	}
+
+	return ip
+}
+
+func setPrefixBytes(b []byte, act, exp int) []byte {
+	if act > exp {
+		return b[act-exp:]
+	} else {
+		b = append(b[:exp], b[act:]...)
+		return b
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -51,19 +52,19 @@ func Test_Bind_Local(t *testing.T) {
 func Test_Divert_Filter(t *testing.T) {
 	t.Skip() // todo:
 
-	ips := []net.IP{
+	ips := []netip.Addr{
 		locIP,
-		net.ParseIP("127.0.0.1"),
-		net.ParseIP("0.0.0.0"),
+		netip.MustParseAddr("127.0.0.1"),
+		netip.MustParseAddr("0.0.0.0"),
 	}
 
 	for _, ip := range ips {
-		caddr := &net.TCPAddr{IP: ip, Port: int(randPort())}
-		saddr := &net.TCPAddr{IP: ip, Port: int(randPort())}
+		caddr := netip.AddrPortFrom(ip, randPort())
+		saddr := netip.AddrPortFrom(ip, randPort())
 
 		// server
 		go func() {
-			l, err := net.ListenTCP("tcp", saddr)
+			l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: saddr.Addr().AsSlice(), Port: int(saddr.Port())})
 			require.NoError(t, err)
 			defer l.Close()
 			conn, err := l.AcceptTCP()
@@ -73,7 +74,7 @@ func Test_Divert_Filter(t *testing.T) {
 
 		// capture client's inboud packet
 		go func() {
-			filter := fmt.Sprintf("tcp and localPort=%d and remotePort=%d", saddr.Port, caddr.Port)
+			filter := fmt.Sprintf("tcp and localPort=%d and remotePort=%d", saddr.Port(), caddr.Port())
 
 			d, err := dll.Open(filter, divert.LAYER_NETWORK, 0, divert.SNIFF)
 			require.NoError(t, err)
@@ -88,14 +89,17 @@ func Test_Divert_Filter(t *testing.T) {
 				tcphdr := header.TCP(iphdr.Payload())
 
 				// fmt.Println(tcphdr.SourcePort(), "-->", tcphdr.DestinationPort())
-				require.Equal(t, uint16(saddr.Port), tcphdr.SourcePort())
-				require.Equal(t, uint16(caddr.Port), tcphdr.DestinationPort())
+				require.Equal(t, saddr.Port(), tcphdr.SourcePort())
+				require.Equal(t, caddr.Port(), tcphdr.DestinationPort())
 			}
 		}()
 
 		// client
 		time.Sleep(time.Second * 3)
-		conn, err := net.DialTCP("tcp", caddr, saddr)
+		conn, err := net.DialTCP("tcp",
+			&net.TCPAddr{IP: caddr.Addr().AsSlice(), Port: int(caddr.Port())},
+			&net.TCPAddr{IP: saddr.Addr().AsSlice(), Port: int(caddr.Port())},
+		)
 		require.NoError(t, err)
 		defer conn.Close()
 	}
@@ -103,8 +107,8 @@ func Test_Divert_Filter(t *testing.T) {
 }
 
 func Test_Divert_Auto_Handle_DF(t *testing.T) {
-	src := &net.TCPAddr{IP: locIP, Port: int(randPort())}
-	dst := &net.TCPAddr{IP: net.ParseIP("8.8.8.8"), Port: int(randPort())}
+	src := netip.AddrPortFrom(locIP, randPort())
+	dst := netip.AddrPortFrom(netip.MustParseAddr("8.8.8.8"), randPort())
 
 	go func() {
 		time.Sleep(time.Second)
@@ -122,7 +126,7 @@ func Test_Divert_Auto_Handle_DF(t *testing.T) {
 
 	filter := fmt.Sprintf(
 		"!loopback and outbound and tcp and localAddr=%s and localPort=%d and remoteAddr=%s and remotePort=%d",
-		src.IP, src.Port, dst.IP, dst.Port,
+		src.Addr().String(), src.Port(), dst.Addr().String(), dst.Port(),
 	)
 
 	d, err := dll.Open(filter, divert.LAYER_NETWORK, 0, divert.READ_ONLY)
@@ -143,7 +147,7 @@ func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
 
 	// server
 	go func() {
-		l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: locIP, Port: sPort})
+		l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: locIP.AsSlice(), Port: sPort})
 		require.NoError(t, err)
 		defer l.Close()
 		for {
@@ -161,8 +165,8 @@ func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
 	var conn net.Conn
 	{
 		raw, err := NewRawWithDivert(
-			&net.TCPAddr{IP: locIP, Port: cPort},
-			&net.TCPAddr{IP: locIP, Port: sPort},
+			&net.TCPAddr{IP: locIP.AsSlice(), Port: cPort},
+			&net.TCPAddr{IP: locIP.AsSlice(), Port: sPort},
 			dll,
 		)
 		require.NoError(t, err)
