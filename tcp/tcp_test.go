@@ -2,10 +2,10 @@ package tcp
 
 import (
 	"context"
-	"crypto/rand"
+	crand "crypto/rand"
 	"errors"
 	"io"
-	"math/big"
+	"math/rand"
 	"net"
 	"net/netip"
 	"testing"
@@ -24,14 +24,13 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 )
 
-var locIP = func() netip.Addr {
-	c, _ := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 53})
-	return netip.MustParseAddrPort(c.LocalAddr().String()).Addr()
-}()
-
 func Test_UsrStack_PingPong(t *testing.T) {
 	const constNic tcpip.NICID = 123
-	var constAddr = tcpip.AddrFromSlice(locIP.AsSlice())
+
+	addrs, err := createTuns(1)
+	require.NoError(t, err)
+
+	var constAddr = tcpip.AddrFromSlice(addrs[0].AsSlice())
 
 	var s *stack.Stack
 	{
@@ -121,7 +120,7 @@ func Test_UsrStack_PingPong(t *testing.T) {
 *  │   │            ├───┼───>"hello world"      │
 *  └───┴────────────┴───┘                       │
  */
-func pingPongWithUserStackClient(t *testing.T, raw relraw.Raw) net.Conn {
+func pingPongWithUserStackClient(t *testing.T, clientAddr netip.Addr, raw relraw.RawConn) net.Conn {
 	const nicid tcpip.NICID = 11
 
 	s := stack.New(stack.Options{
@@ -135,7 +134,7 @@ func pingPongWithUserStackClient(t *testing.T, raw relraw.Raw) net.Conn {
 	}
 	s.AddProtocolAddress(nicid, tcpip.ProtocolAddress{
 		Protocol:          header.IPv4ProtocolNumber,
-		AddressWithPrefix: tcpip.AddrFromSlice(locIP.AsSlice()).WithPrefix(),
+		AddressWithPrefix: tcpip.AddrFromSlice(clientAddr.AsSlice()).WithPrefix(),
 	}, stack.AddressProperties{})
 	s.SetRouteTable([]tcpip.Route{{Destination: header.IPv4EmptySubnet, NIC: nicid}})
 
@@ -202,7 +201,7 @@ func pingPongWithUserStackClient(t *testing.T, raw relraw.Raw) net.Conn {
 	return conn
 }
 
-func pingPongWithUserStackServer(t *testing.T, raw relraw.Raw) net.Listener {
+func pingPongWithUserStackServer(t *testing.T, raw relraw.RawConn) net.Listener {
 	return nil
 }
 
@@ -253,7 +252,7 @@ func buildRawTCP(t *testing.T, laddr, raddr netip.AddrPort, totalSize int) heade
 	require.NoError(t, err)
 
 	var b = make([]byte, totalSize)
-	rand.Read(b[header.IPv4MinimumSize+header.TCPMinimumSize:])
+	crand.Read(b[header.IPv4MinimumSize+header.TCPMinimumSize:])
 
 	ts := uint32(time.Now().UnixNano())
 	tcphdr := header.TCP(b[header.IPv4MinimumSize:])
@@ -286,12 +285,7 @@ func buildRawTCP(t *testing.T, laddr, raddr netip.AddrPort, totalSize int) heade
 }
 
 func randPort() uint16 {
-	b, err := rand.Int(rand.Reader, big.NewInt(0xff))
-	if err != nil {
-		panic(err)
-	}
-
-	p := uint16(b.Int64())
+	p := uint16(rand.Uint32())
 	if p < 1024 {
 		p += 1536
 	} else if p > 0xffff-64 {

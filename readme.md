@@ -1,3 +1,6 @@
-读写原始传输层数据包
+# usable IP connect
 
-tcpdump -i tcp 
+
+
+note: 
+1. 不支持loopback

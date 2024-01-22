@@ -1,68 +1,163 @@
 package tcp
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
+	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/lysShub/relraw"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-func Test_BPF_Filter(t *testing.T) {
-	var (
-		saddr = netip.AddrPortFrom(locIP, randPort())
-		caddr = netip.AddrPortFrom(locIP, randPort())
-	)
+var createTuns = func() func(n int) ([]netip.Addr, error) {
+	var idx atomic.Uint32
+	var lip = relraw.LocalAddr()
+	return func(n int) ([]netip.Addr, error) {
+		var addrs = []netip.Addr{}
+		for i := 0; i < n; i++ {
+			name := fmt.Sprintf("test%d", idx.Add(1))
 
-	// noise
-	go func() {
-		conn, err := net.ListenIP("ip:tcp", &net.IPAddr{IP: locIP.AsSlice()})
-		require.NoError(t, err)
-		defer conn.Close()
+			{
+				file, err := os.OpenFile("/dev/net/tun", os.O_RDWR, 0)
+				if err != nil {
+					return nil, err
+				}
 
-		var noises = [][]byte{
-			buildRawTCP(t, saddr, caddr, 128),
+				ifq, err := unix.NewIfreq(name)
+				if err != nil {
+					return nil, err
+				}
+				ifq.SetUint32(unix.IFF_TUN | unix.IFF_NO_PI)
 
-			buildRawTCP(t, netip.AddrPortFrom(locIP, randPort()), saddr, 128),
+				err = unix.IoctlIfreq(int(file.Fd()), unix.TUNSETIFF, ifq)
+				if err != nil {
+					return nil, err
+				}
+			}
 
-			buildRawTCP(t, caddr, netip.AddrPortFrom(locIP, randPort()), 128),
+			fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+			if err != nil {
+				return nil, err
+			}
+			defer unix.Close(fd)
 
-			buildRawTCP(t,
-				netip.AddrPortFrom(locIP, randPort()),
-				netip.AddrPortFrom(locIP, randPort()),
-				128,
-			),
+			{ // set flags
+				ifq, err := unix.NewIfreq(name)
+				if err != nil {
+					return nil, err
+				}
+
+				ifq.SetUint32(ifq.Uint32() | unix.IFF_UP | unix.IFF_RUNNING)
+				if err := unix.IoctlIfreq(fd, unix.SIOCSIFFLAGS, ifq); err != nil {
+					return nil, err
+				}
+			}
+
+			{ // set ip
+				var addr = netip.AddrFrom4([4]byte{172, 16, 11, uint8(idx.Load()) + 1})
+				if addr == lip {
+					return nil, fmt.Errorf("address confilt")
+				}
+				addrs = append(addrs, addr)
+
+				ifq, err := unix.NewIfreq(name)
+				if err != nil {
+					return nil, err
+				}
+				if err = ifq.SetInet4Addr(addr.AsSlice()); err != nil {
+					return nil, err
+				}
+
+				if err = unix.IoctlIfreq(fd, unix.SIOCSIFADDR, ifq); err != nil {
+					return nil, err
+				}
+			}
 		}
+		return addrs, nil
+	}
+}()
 
-		for _, b := range noises {
+func Test_Create_Tuns(t *testing.T) {
+	addrs, err := createTuns(2)
+	require.NoError(t, err)
 
-			_, err := conn.WriteToIP(b, &net.IPAddr{IP: locIP.AsSlice()})
+	go func() {
+		l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: addrs[0].AsSlice(), Port: 8080})
+		require.NoError(t, err)
+
+		for {
+			conn, err := l.AcceptTCP()
 			require.NoError(t, err)
-			time.Sleep(time.Millisecond * 10)
+			go func() {
+				io.Copy(conn, conn)
+			}()
 		}
 	}()
 	time.Sleep(time.Second)
 
-	raw, err := NewRawWithBPF(
-		&net.TCPAddr{IP: saddr.Addr().AsSlice(), Port: int(saddr.Port())},
-		&net.TCPAddr{IP: caddr.Addr().AsSlice(), Port: int(caddr.Port())},
+	conn, err := net.DialTCP(
+		"tcp",
+		&net.TCPAddr{IP: addrs[1].AsSlice(), Port: 19986},
+		&net.TCPAddr{IP: addrs[0].AsSlice(), Port: 8080},
 	)
 	require.NoError(t, err)
-	defer raw.Close()
+
+	_, err = conn.Write([]byte("hello world"))
+	require.NoError(t, err)
+
+	var b = make([]byte, 64)
+	n, err := conn.Read(b)
+	require.NoError(t, err)
+
+	require.Equal(t, "hello world", string(b[:n]))
+}
+
+func Test_BPF_Filter(t *testing.T) {
+	addrs, err := createTuns(2)
+	require.NoError(t, err)
+	var (
+		saddr = netip.AddrPortFrom(addrs[0], 8080)
+		caddr = netip.AddrPortFrom(addrs[1], 19986)
+	)
 
 	go func() {
-		time.Sleep(time.Second)
+		conn, err := net.ListenIP("ip:tcp", &net.IPAddr{IP: caddr.Addr().AsSlice()})
+		require.NoError(t, err)
+		defer conn.Close()
 
-		for i := 0; i < 3; i++ {
-			b := buildRawTCP(t, caddr, saddr, 128)
-			_, err = raw.Write(b)
-			require.NoError(t, err)
-			time.Sleep(time.Millisecond * 10)
+		var noises = [][]byte{
+			buildRawTCP(t, caddr, saddr, 128),
+
+			// noise
+			buildRawTCP(t, saddr, caddr, 128),
+			buildRawTCP(t, netip.AddrPortFrom(caddr.Addr(), randPort()), saddr, 128),
+			buildRawTCP(t, caddr, netip.AddrPortFrom(caddr.Addr(), randPort()), 128),
+			buildRawTCP(t,
+				netip.AddrPortFrom(caddr.Addr(), randPort()),
+				netip.AddrPortFrom(saddr.Addr(), randPort()),
+				128,
+			),
+		}
+
+		for {
+			for _, b := range noises {
+				_, err := conn.WriteToIP(header.IPv4(b).Payload(), &net.IPAddr{IP: saddr.Addr().AsSlice()})
+				require.NoError(t, err)
+				time.Sleep(time.Millisecond * 100)
+			}
 		}
 	}()
+
+	raw, err := ConnectWithBPF(saddr, caddr)
+	require.NoError(t, err)
+	defer raw.Close()
 
 	for i := 0; i < 3; i++ {
 		var b = make([]byte, 1536)
@@ -77,14 +172,17 @@ func Test_BPF_Filter(t *testing.T) {
 }
 
 func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
+	addrs, err := createTuns(2)
+	require.NoError(t, err)
+
 	var (
-		cPort = int(randPort())
-		sPort = int(randPort())
+		cAddr = netip.AddrPortFrom(addrs[0], randPort())
+		sAddr = netip.AddrPortFrom(addrs[1], randPort())
 	)
 
 	// server
 	go func() {
-		l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: locIP.AsSlice(), Port: sPort})
+		l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: sAddr.Addr().AsSlice(), Port: int(sAddr.Port())})
 		require.NoError(t, err)
 		defer l.Close()
 		for {
@@ -96,21 +194,19 @@ func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
 			}()
 		}
 	}()
+	time.Sleep(time.Second)
 
 	// usr-stack with raw-conn
 	var conn net.Conn
 	{
-		raw, err := NewRawWithBPF(
-			&net.TCPAddr{IP: locIP.AsSlice(), Port: cPort},
-			&net.TCPAddr{IP: locIP.AsSlice(), Port: sPort},
-		)
+		raw, err := ConnectWithBPF(cAddr, sAddr)
 		require.NoError(t, err)
 		defer raw.Close()
-		conn = pingPongWithUserStackClient(t, raw)
+		conn = pingPongWithUserStackClient(t, cAddr.Addr(), raw)
 	}
 
 	// client
-	_, err := conn.Write([]byte("hello"))
+	_, err = conn.Write([]byte("hello"))
 	require.NoError(t, err)
 
 	var b = make([]byte, 1536)
