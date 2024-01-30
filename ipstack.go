@@ -214,3 +214,113 @@ func setPrefixBytes(b []byte, act, exp int) []byte {
 		return b
 	}
 }
+
+type IPStack2 struct {
+	network   tcpip.NetworkProtocolNumber
+	transport tcpip.TransportProtocolNumber
+
+	up, down []byte
+
+	// pseudo header checksum without totalLen
+	psoSum1 uint16
+}
+
+func NewIPStack2(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber) *IPStack2 {
+	var s = &IPStack2{transport: proto}
+
+	if laddr.Is4() {
+		s.network = header.IPv4ProtocolNumber
+		s.up, s.psoSum1 = initHdr(laddr, raddr, proto)
+		s.down, s.psoSum1 = initHdr(raddr, laddr, proto)
+	} else {
+		s.network = header.IPv6ProtocolNumber
+		s.up, s.psoSum1 = initHdr6(laddr, raddr, proto)
+		s.down, s.psoSum1 = initHdr6(raddr, laddr, proto)
+	}
+	return s
+}
+
+func initHdr(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber) ([]byte, uint16) {
+	f := &header.IPv4Fields{
+		TOS:            0,
+		TotalLength:    0, // dynamic
+		ID:             0, // dynamic
+		Flags:          0,
+		FragmentOffset: 0,
+		TTL:            128,
+		Protocol:       uint8(proto),
+		Checksum:       0,
+		SrcAddr:        tcpip.AddrFrom4(laddr.As4()),
+		DstAddr:        tcpip.AddrFrom4(raddr.As4()),
+		Options:        nil,
+	}
+
+	b := header.IPv4(make([]byte, header.IPv4MinimumSize))
+	b.Encode(f)
+	return []byte(b), header.PseudoHeaderChecksum(proto, f.SrcAddr, f.DstAddr, 0)
+}
+
+func initHdr6(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber) ([]byte, uint16) {
+	f := &header.IPv6Fields{
+		TrafficClass:      0,
+		FlowLabel:         0,
+		PayloadLength:     0, // dynamic
+		TransportProtocol: proto,
+		HopLimit:          128,
+		SrcAddr:           tcpip.AddrFrom16(laddr.As16()),
+		DstAddr:           tcpip.AddrFrom16(raddr.As16()),
+	}
+
+	b := header.IPv6(make([]byte, header.IPv6MinimumSize))
+	b.Encode(f)
+	return []byte(b), header.PseudoHeaderChecksum(proto, f.SrcAddr, f.DstAddr, 0)
+}
+
+func (i *IPStack2) AttachSize() int {
+	if i.network == header.IPv4ProtocolNumber {
+		return header.IPv4MinimumSize
+	} else {
+		return header.IPv6MinimumSize
+	}
+}
+
+func (i *IPStack2) AttachUp(ip []byte) {
+	copy(ip, i.up)
+	i.attachAndUpdateTransportChecksum(ip)
+}
+
+func (i *IPStack2) AttachDown(ip []byte) {
+	copy(ip, i.down)
+	i.attachAndUpdateTransportChecksum(ip)
+}
+
+func (i *IPStack2) attachAndUpdateTransportChecksum(ip []byte) {
+	psoSum, t := i.attach(ip)
+
+	switch i.transport {
+	case header.TCPProtocolNumber:
+		tcphdr := header.TCP(t)
+		ss := tcphdr.Checksum()
+		sum := checksum.Combine(psoSum, ss)
+		tcphdr.SetChecksum(^sum)
+	case header.UDPProtocolNumber:
+		udphdr := header.UDP(t)
+		sum := checksum.Combine(psoSum, udphdr.Checksum())
+		udphdr.SetChecksum(^sum)
+	}
+}
+
+func (i *IPStack2) attach(ip []byte) (uint16, []byte) {
+	if i.network == header.IPv4ProtocolNumber {
+		iphdr := header.IPv4(ip)
+		iphdr.SetTotalLength(uint16(len(iphdr)))
+		iphdr.SetID(uint16(rand.Uint32()))
+		psoSum := checksum.Combine(i.psoSum1, uint16(len(iphdr)-header.IPv4MinimumSize))
+		return psoSum, iphdr.Payload()
+	} else {
+		iphdr := header.IPv6(ip)
+		n := uint16(len(ip) - header.IPv6MinimumSize)
+		iphdr.SetPayloadLength(n)
+		return checksum.Combine(i.psoSum1, n), iphdr.Payload()
+	}
+}

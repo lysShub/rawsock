@@ -5,14 +5,12 @@ package tcp
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"net/netip"
 	"sync"
 	"unsafe"
 
 	"github.com/lysShub/relraw"
-	"github.com/lysShub/relraw/internal"
 	"golang.org/x/net/bpf"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -116,6 +114,7 @@ func (l *listenerBPF) setSynFilterBPF() error {
 	return nil
 }
 
+// todo: not support private proto that not start with tcp SYN flag
 func (l *listenerBPF) Accept() (relraw.RawConn, error) {
 	for {
 		n, err := l.raw.Read(l.readb)
@@ -190,21 +189,20 @@ func ConnectWithBPF(laddr, raddr netip.AddrPort) (*connBPF, error) {
 	var r = &connBPF{raddr: raddr}
 	var err error
 
-	// listenLocal, forbid other process use this port and avoid RST by system-stack
 	r.tcp, r.laddr, err = listenLocal(laddr)
 	if err != nil {
-		r.Close()
-		return nil, err
+		return nil, errors.Join(err, r.Close())
 	}
-	if !internal.ValideConnectAddrs(r.laddr.Addr(), r.raddr.Addr()) {
-		r.Close()
-		return nil, &net.OpError{
-			Op:     "listen",
-			Source: r.LocalAddr(),
-			Addr:   r.RemoteAddr(),
-			Err:    fmt.Errorf("invalid address"),
-		}
-	}
+
+	// if !internal.ValideConnectAddrs(r.laddr.Addr(), r.raddr.Addr()) {
+	// 	r.Close()
+	// 	return nil, &net.OpError{
+	// 		Op:     "listen",
+	// 		Source: r.LocalAddr(),
+	// 		Addr:   r.RemoteAddr(),
+	// 		Err:    fmt.Errorf("invalid address"),
+	// 	}
+	// }
 
 	return r, r.init()
 }
@@ -216,43 +214,33 @@ func (r *connBPF) init() (err error) {
 		&net.IPAddr{IP: r.raddr.Addr().AsSlice(), Zone: r.raddr.Addr().Zone()},
 	)
 	if err != nil {
-		r.Close()
-		return err
+		return errors.Join(err, r.Close())
 	}
 
 	if sc, err := r.raw.SyscallConn(); err != nil {
-		r.Close()
-		return err
+		return errors.Join(err, r.Close())
 	} else {
 		e := sc.Control(func(fd uintptr) {
+			// read with ip header
 			err = unix.SetsockoptByte(int(fd), unix.IPPROTO_IP, unix.IP_HDRINCL, 1)
+			if err != nil {
+				return
+			}
+			err = setPortsFilterBPF(0, r.laddr.Port(), r.raddr.Port())
+			if err != nil {
+				return
+			}
 		})
-		if err != nil {
-			r.Close()
-			return err
-		} else if e != nil {
-			r.Close()
-			return e
+		if err := errors.Join(err, e); err != nil {
+			return errors.Join(err, r.Close())
 		}
-	}
-
-	// 只需要设置端口
-	if err = r.setBPF(); err != nil {
-		r.Close()
-		return err
 	}
 
 	return nil
 }
 
-func (l *connBPF) setBPF() error {
-	if err := l.setPortsFilterBPF(); err != nil {
-		return err
-	}
-	return l.setListenerBPF()
-}
-
-func (l *connBPF) setPortsFilterBPF() error {
+// setPortsFilterBPF BPF filter by localPort and remotePort
+func setPortsFilterBPF(fd uintptr, localPort, remotePort uint16) error {
 	var ins = []bpf.Instruction{
 		// load ip version
 		bpf.LoadAbsolute{Off: 0, Size: 1},
@@ -270,12 +258,12 @@ func (l *connBPF) setPortsFilterBPF() error {
 	ins = append(ins, []bpf.Instruction{
 		// source port
 		bpf.LoadIndirect{Off: 0, Size: 2},
-		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(l.raddr.Port()), SkipTrue: 1},
+		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(remotePort), SkipTrue: 1},
 		bpf.RetConstant{Val: 0},
 
 		// destination port
 		bpf.LoadIndirect{Off: 2, Size: 2},
-		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(l.laddr.Port()), SkipTrue: 1},
+		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(localPort), SkipTrue: 1},
 		bpf.RetConstant{Val: 0},
 
 		bpf.RetConstant{Val: 0xffff},
@@ -291,44 +279,45 @@ func (l *connBPF) setPortsFilterBPF() error {
 		}
 	}
 
-	raw, err := l.raw.SyscallConn()
-	if err != nil {
-		return err
-	}
-	e := raw.Control(func(fd uintptr) {
-		err = unix.SetsockoptSockFprog(int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog)
-	})
-	if err != nil {
-		return err
-	} else if e != nil {
-		return e
-	}
-	return nil
+	return unix.SetsockoptSockFprog(int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog)
 }
 
-func (l *connBPF) setListenerBPF() error {
-	rawIns, err := bpf.Assemble([]bpf.Instruction{
-		bpf.RetConstant{Val: 0},
-	})
+// listenLocal occupy local port and avoid system stack send RST
+func listenLocal(laddr netip.AddrPort) (*net.TCPListener, netip.AddrPort, error) {
+	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: laddr.Addr().AsSlice(), Port: int(laddr.Port())})
 	if err != nil {
-		return err
+		return nil, netip.AddrPort{}, err
 	}
-	prog := &unix.SockFprog{
-		Len:    uint16(len(rawIns)),
-		Filter: (*unix.SockFilter)(unsafe.Pointer(&rawIns[0])),
-	}
-	s, err := l.tcp.SyscallConn()
+
+	raw, err := l.SyscallConn()
 	if err != nil {
-		return err
+		return nil, netip.AddrPort{}, errors.Join(err, l.Close())
 	}
 	var e error
-	err = s.Control(func(fd uintptr) {
-		e = unix.SetsockoptSockFprog(int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog)
+	err = raw.Control(func(fd uintptr) {
+		rawIns, e1 := bpf.Assemble([]bpf.Instruction{
+			bpf.RetConstant{Val: 0},
+		})
+		if e1 != nil {
+			e = e1
+			return
+		}
+		prog := &unix.SockFprog{
+			Len:    uint16(len(rawIns)),
+			Filter: (*unix.SockFilter)(unsafe.Pointer(&rawIns[0])),
+		}
+
+		e = unix.SetsockoptSockFprog(
+			int(fd), unix.SOL_SOCKET,
+			unix.SO_ATTACH_FILTER, prog,
+		)
 	})
-	if e != nil {
-		return err
+	if err := errors.Join(err, e); err != nil {
+		return nil, netip.AddrPort{}, errors.Join(e, l.Close())
 	}
-	return err
+
+	addr := netip.MustParseAddrPort(l.Addr().String())
+	return l, netip.AddrPortFrom(laddr.Addr(), addr.Port()), nil
 }
 
 func (r *connBPF) Read(b []byte) (n int, err error) {
@@ -338,14 +327,14 @@ func (r *connBPF) Write(b []byte) (n int, err error) {
 	return r.raw.Write(b)
 }
 
-func (r *connBPF) WriteReservedIPHeader(ip []byte) (n int, err error) {
+func (r *connBPF) WriteReservedIPHeader(ip []byte, reserved int) (err error) {
 	return
 }
 
-func (r *connBPF) Inject(b []byte) (n int, err error) {
+func (r *connBPF) Inject(b []byte) (err error) {
 	return
 }
-func (r *connBPF) InjectReservedIPHeader(ip []byte) (n int, err error) {
+func (r *connBPF) InjectReservedIPHeader(ip []byte, reserved int) (err error) {
 	return
 }
 

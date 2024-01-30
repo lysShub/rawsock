@@ -110,7 +110,7 @@ func Test_AttachHeader(t *testing.T) {
 	}
 }
 
-func Test_AttachHeader2(t *testing.T) {
+func Test_UpdateHeader(t *testing.T) {
 
 	var buildIP = func(network tcpip.NetworkProtocolNumber, transport tcpip.TransportProtocolNumber) []byte {
 		var (
@@ -287,4 +287,58 @@ func TestSetPrefixBytes(t *testing.T) {
 
 		require.Equal(t, b1[expLen:], e, fmt.Sprintf("act:%d exp:%d", actLen, expLen))
 	}
+}
+
+func Test_IPStack2(t *testing.T) {
+
+	var suits = []struct {
+		src, dst netip.Addr
+	}{
+		{
+			src: netip.MustParseAddr("127.0.0.1"),
+			dst: netip.MustParseAddr("8.8.8.8"),
+		},
+		// {
+		// 	src: netip.MustParseAddr("3ffe:ffff:fe00:0001:0000:0000:0000:0001"),
+		// 	dst: netip.MustParseAddr("2001:0db8:85a3:0000:0000:8a2e:0370:7334"),
+		// },
+	}
+
+	for _, suit := range suits {
+		s := NewIPStack2(suit.src, suit.dst, header.TCPProtocolNumber)
+
+		var tcp = func() header.TCP {
+			var b = header.TCP(make([]byte, 64))
+			b.Encode(&header.TCPFields{
+				SrcPort:    uint16(rand.Uint32()),
+				DstPort:    uint16(rand.Uint32()),
+				SeqNum:     rand.Uint32(),
+				AckNum:     rand.Uint32(),
+				DataOffset: 20,
+				Flags:      header.TCPFlagAck | header.TCPFlagPsh,
+				WindowSize: uint16(rand.Uint32()),
+				Checksum:   0,
+			})
+			b.SetChecksum(checksum.Checksum(b, 0))
+			return b
+		}()
+
+		ip := header.IPv4(make([]byte, s.AttachSize()+len(tcp)))
+		copy(ip[s.AttachSize():], tcp)
+
+		s.AttachUp(ip)
+
+		tcp = header.TCP(header.IPv4(ip).Payload())
+		ok := ip.SourceAddress().As4() == suit.src.As4() &&
+			ip.DestinationAddress().As4() == suit.dst.As4() &&
+			tcp.IsChecksumValid(
+				ip.SourceAddress(),
+				ip.DestinationAddress(),
+				checksum.Checksum(tcp.Payload(), 0),
+				uint16(len(tcp.Payload())),
+			)
+
+		require.True(t, ok)
+	}
+
 }

@@ -7,20 +7,30 @@ import (
 
 type Listener interface {
 	Accept() (RawConn, error)
+
+	// todo: next support
+	// AcceptBy(filter []bpf.Instruction)(RawConn,error)
 }
 
 type RawConn interface {
 	Close() error
 
-	// read ip packet
+	// Read read ip packet from remote address
 	Read(ip []byte) (n int, err error)
 
-	// write tcp/udp packet
+	// Write write tcp/udp/icmp packet to remote address, tcp/udp packet
+	// should set checksum that without pseudo checksum
 	Write(b []byte) (n int, err error)
-	WriteReservedIPHeader(ip []byte) (n int, err error)
 
-	Inject(b []byte) (n int, err error)
-	InjectReservedIPHeader(ip []byte) (n int, err error)
+	// WriteReservedIPHeader Write tcp/udp/icmp with prefix reserved bytes
+	WriteReservedIPHeader(ip []byte, reserved int) (err error)
+
+	// Inject inject tcp/udp/icmp packet to local address, tcp/udp packet
+	// should set checksum that without pseudo checksum
+	Inject(b []byte) (err error)
+
+	// InjectReservedIPHeader Inject tcp/udp/icmp with prefix reserved bytes
+	InjectReservedIPHeader(ip []byte, reserved int) (err error)
 
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr

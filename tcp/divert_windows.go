@@ -1,42 +1,49 @@
 package tcp
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"sync"
 
-	"github.com/lysShub/go-divert"
+	"github.com/lysShub/divert-go"
 	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/internal"
+	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-func ListenWithDivert(dll *divert.DivertDLL, locAddr netip.AddrPort) (*listenerDivert, error) {
+func ListenWithDivert(locAddr netip.AddrPort) (*listenerDivert, error) {
 	var l = &listenerDivert{
-		conns: make(map[netip.AddrPort]struct{}, 16),
+		conns:    make(map[netip.AddrPort]struct{}, 16),
+		b:        make([]byte, 1536), // todo: mtu
+		priority: 11,                 //todo: from cfg
 	}
 
 	var err error
-	l.tcp, l.addr, err = listenLocal(locAddr)
+	l.tcp, l.addr, err = bindLocal(locAddr)
 	if err != nil {
 		l.Close()
 		return nil, err
 	}
 
-	// ref: https://reqrypt.org/windivert-doc.html#divert_open
-	// note that Windows considers any packet originating from, and destined to, the current machine to be a
-	// loopback packet, so loopback packets are not limited to localhost addresses. Note that WinDivert considers
-	// loopback packets to be outbound only, and will not capture loopback packets on the inbound path.
-	//
-	// so, this filter will not capture loopback packet.
-	var filter = fmt.Sprintf(
-		"tcp and !loopback and localPort=%d and localAddr=%s",
-		l.addr.Port(), l.addr.Addr().String(),
-	)
+	var filter string
+	if l.addr.Addr().IsLoopback() {
+		filter = fmt.Sprintf(
+			"tcp and remotePort=%d and remoteAddr=%s",
+			l.addr.Port(), l.addr.Addr().String(),
+		)
+	} else {
+		filter = fmt.Sprintf(
+			"(loopback and tcp and remotePort=%d and remoteAddr=%s) or (!loopback and tcp and localPort=%d and localAddr=%s)",
+			l.addr.Port(), l.addr.Addr().String(),
+			l.addr.Port(), l.addr.Addr().String(),
+		)
+	}
 
-	if l.raw, err = dll.Open(filter, divert.LAYER_SOCKET, 0, divert.READ_ONLY); err != nil {
+	if l.raw, err = divert.Open(filter, divert.LAYER_NETWORK, l.priority, divert.READ_ONLY); err != nil {
 		l.Close()
 		return nil, err
 	}
@@ -45,21 +52,37 @@ func ListenWithDivert(dll *divert.DivertDLL, locAddr netip.AddrPort) (*listenerD
 }
 
 type listenerDivert struct {
+
+	/*
+		Structure
+
+			handle priority      	describe
+
+			a          			  listener read new conn's first packet P1
+
+			a+1        			  connection from Accept, read corresponding packet（not sniff）
+
+			a+2 or MAX_PRIORITY   after a+1 open, inject P1 use this handle（ignore current, tcp will send muti SYN packet）
+	*/
+	// todo: inject P1
+
 	addr netip.AddrPort
-	tcp  *net.TCPListener
+	tcp  windows.Handle
 	raw  *divert.Divert
 
-	dll *divert.DivertDLL
+	priority int16
 
-	conns   map[netip.AddrPort]struct{}
-	connsMu sync.RWMutex
+	conns map[netip.AddrPort]struct{}
+	mu    sync.RWMutex
+
+	b []byte
 }
 
 func (l *listenerDivert) Close() error {
 	var errs []error
 
-	if l.tcp != nil {
-		errs = append(errs, l.tcp.Close())
+	if l.tcp != 0 {
+		errs = append(errs, windows.Close(l.tcp))
 	}
 	if l.raw != nil {
 		errs = append(errs, l.raw.Close())
@@ -68,37 +91,58 @@ func (l *listenerDivert) Close() error {
 }
 
 func (l *listenerDivert) Accept() (relraw.RawConn, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	for {
-		_, addr, err := l.raw.Recv(nil)
+		n, addr, err := l.raw.Recv(l.b)
 		if err != nil {
 			return nil, err
-		} else if addr.Event != divert.SOCKET_ACCEPT {
-			continue
+		} else if n == 0 {
+			return nil, fmt.Errorf("divert shutdown")
 		}
 
-		s := addr.Socket()
+		const (
+			ip4tcp = header.TCPMinimumSize + header.IPv4MinimumSize
+			ip6tcp = header.TCPMinimumSize + header.ICMPv6MinimumSize
+		)
 
-		raddr := netip.AddrPortFrom(s.RemoteAddr(), s.RemotePort)
+		var raddr netip.AddrPort
 
-		l.connsMu.RLock()
-		_, ok := l.conns[raddr]
-		l.connsMu.RUnlock()
-
-		if ok {
-			continue
+		ver := header.IPVersion(l.b)
+		if ver == 4 && n >= ip4tcp {
+			iphdr := header.IPv4(l.b[:n])
+			tcphdr := header.TCP(iphdr.Payload())
+			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
+		} else if ver == 6 && n >= ip6tcp {
+			iphdr := header.IPv6(l.b[:n])
+			tcphdr := header.TCP(iphdr.Payload())
+			raddr = netip.AddrPortFrom(netip.AddrFrom16(iphdr.SourceAddress().As16()), tcphdr.SourcePort())
 		} else {
-			// todo: 要删除这个， 用回调函数吧
-			l.connsMu.Lock()
+			return nil, fmt.Errorf("recv invalid ip packet: %s", hex.Dump(l.b[:n]))
+		}
+
+		l.mu.RLock()
+		_, ok := l.conns[raddr]
+		l.mu.RUnlock()
+		if ok {
+			continue // todo: inject
+		} else {
+			l.mu.Lock()
 			l.conns[raddr] = struct{}{}
-			l.connsMu.Unlock()
+			l.mu.Unlock()
 
 			var conn = &connDivert{
-				laddr:   l.addr,
-				raddr:   raddr,
-				closeFn: l.deleteConn,
+				laddr:      l.addr,
+				raddr:      raddr,
+				loopback:   addr.Loopback(),
+				closeFn:    l.deleteConn,
+				injectAddr: &divert.Address{},
 			}
+			conn.injectAddr.SetOutbound(false)
+			conn.injectAddr.Network().IfIdx = addr.Network().IfIdx
 
-			return conn, conn.init(l.dll)
+			return conn, conn.init(l.priority + 1)
+			// todo: inject P1
 		}
 	}
 }
@@ -107,81 +151,87 @@ func (l *listenerDivert) deleteConn(raddr netip.AddrPort) error {
 	if l == nil {
 		return nil
 	}
-	l.connsMu.Lock()
+	l.mu.Lock()
 	delete(l.conns, raddr)
-	l.connsMu.Unlock()
+	l.mu.Unlock()
 	return nil
 }
 
 type connDivert struct {
 	laddr, raddr netip.AddrPort
-	out, in      *relraw.IPStack
+	loopback     bool
 
-	tcp *net.TCPListener
+	//
+	tcp windows.Handle
 
 	raw *divert.Divert
+
+	injectAddr *divert.Address
+
+	ipstack *relraw.IPStack2
 
 	closeFn CloseCallback
 }
 
+var outboundAddr = func() *divert.Address {
+	addr := &divert.Address{}
+	addr.SetOutbound(true)
+	// addr.Flags.IPChecksum() // todo: set false
+	return addr
+}()
+
 var _ relraw.RawConn = (*connDivert)(nil)
 
-var (
-	outboundAddr = &divert.Address{Layer: divert.LAYER_NETWORK, Event: divert.NETWORK_PACKET}
-	inboundAddr  = &divert.Address{Layer: divert.LAYER_NETWORK, Event: divert.NETWORK_PACKET}
-)
-
-func init() {
-	outboundAddr.SetOutbound(true)
-	inboundAddr.SetOutbound(false)
-}
-
-func ConnectWithDivert(dll *divert.DivertDLL, laddr, raddr netip.AddrPort) (*connDivert, error) {
+func ConnectWithDivert(laddr, raddr netip.AddrPort) (*connDivert, error) {
 	var r = &connDivert{
 		raddr: raddr,
 	}
 	var err error
 
 	// listenLocal, forbid other process use this port
-	r.tcp, r.laddr, err = listenLocal(laddr)
+	r.tcp, r.laddr, err = bindLocal(laddr)
 	if err != nil {
 		r.Close()
 		return nil, err
 	}
-	if !internal.ValideConnectAddrs(r.laddr.Addr(), r.raddr.Addr()) {
-		r.Close()
-		return nil, &net.OpError{
-			Op:     "listen",
-			Source: r.LocalAddr(),
-			Addr:   r.RemoteAddr(),
-			Err:    fmt.Errorf("invalid address"),
-		}
+
+	r.injectAddr = &divert.Address{}
+	r.injectAddr.SetOutbound(false)
+	id, err := internal.GetNICIndex(laddr.Addr())
+	if err != nil {
+		return nil, err
+	} else {
+		r.injectAddr.Network().IfIdx = uint32(id)
 	}
 
-	return r, r.init(dll)
+	r.loopback = internal.IsWindowLoopBack(r.laddr.Addr()) &&
+		internal.IsWindowLoopBack(r.raddr.Addr())
+
+	return r, r.init(0)
 }
 
-func (r *connDivert) init(dll *divert.DivertDLL) (err error) {
-	r.out, err = relraw.NewIPStack(r.laddr.Addr(), r.raddr.Addr())
-	if err != nil {
-		r.Close()
-		return err
+func (r *connDivert) init(priority int16) (err error) {
+	var filter string
+	if r.loopback {
+		// loopback recv as outbound packet, so raddr is localAddr laddr is remoteAddr
+		filter = fmt.Sprintf(
+			// outbound and
+			"tcp and localPort=%d and localAddr=%s and remotePort=%d and remoteAddr=%s",
+			r.raddr.Port(), r.raddr.Addr().String(), r.laddr.Port(), r.laddr.Addr().String(),
+		)
+	} else {
+		filter = fmt.Sprintf(
+			"tcp and localPort=%d and localAddr=%s and remotePort=%d and remoteAddr=%s",
+			r.laddr.Port(), r.laddr.Addr().String(), r.raddr.Port(), r.raddr.Addr().String(),
+		)
 	}
-	r.in, err = relraw.NewIPStack(r.raddr.Addr(), r.laddr.Addr())
-	if err != nil {
+
+	if r.raw, err = divert.Open(filter, divert.LAYER_NETWORK, priority, 0); err != nil {
 		r.Close()
 		return err
 	}
 
-	var filter = fmt.Sprintf(
-		"tcp and localPort=%d and localAddr=%s and remotePort=%d and remoteAddr=%s",
-		r.laddr.Port(), r.laddr.Addr().String(), r.raddr.Port(), r.raddr.Addr().String(),
-	)
-
-	if r.raw, err = dll.Open(filter, divert.LAYER_NETWORK, 0, 0); err != nil {
-		r.Close()
-		return err
-	}
+	r.ipstack = relraw.NewIPStack2(r.laddr.Addr(), r.raddr.Addr(), header.TCPProtocolNumber)
 
 	return nil
 }
@@ -190,32 +240,48 @@ func (r *connDivert) Read(b []byte) (n int, err error) {
 	n, _, err = r.raw.Recv(b)
 	return n, err
 }
+
 func (r *connDivert) Write(b []byte) (n int, err error) {
-	i := r.out.AttachHeaderSize()
+	i := r.ipstack.AttachSize()
 	ip := make([]byte, i+len(b))
 	copy(ip[i:], b)
-	r.out.AttachHeader(ip, header.TCPProtocolNumber)
+	r.ipstack.AttachUp(ip)
 
-	return r.raw.Send(ip, outboundAddr)
+	n, err = r.raw.Send(ip, outboundAddr)
+	return max(n-i, 0), err
 }
 
-func (r *connDivert) WriteReservedIPHeader(ip []byte) (n int, err error) {
-	r.out.AttachHeader(ip, header.TCPProtocolNumber)
-	return r.raw.Send(ip, outboundAddr)
+func (r *connDivert) WriteReservedIPHeader(ip []byte, reserved int) (err error) {
+	i := r.ipstack.AttachSize()
+	if delta := i - reserved; delta > 0 {
+		r.ipstack.AttachUp(ip[delta:])
+		_, err = r.raw.Send(ip, outboundAddr)
+		return err
+	} else {
+		_, err = r.Write(ip[reserved:])
+		return err
+	}
 }
 
-func (r *connDivert) Inject(b []byte) (n int, err error) {
-	i := r.in.AttachHeaderSize()
+func (r *connDivert) Inject(b []byte) (err error) {
+	i := r.ipstack.AttachSize()
 	ip := make([]byte, i+len(b))
 	copy(ip[i:], b)
-	r.in.AttachHeader(ip, header.TCPProtocolNumber)
+	r.ipstack.AttachDown(ip)
 
-	return r.raw.Send(ip, inboundAddr)
+	_, err = r.raw.Send(ip, r.injectAddr)
+	return err
 }
 
-func (r *connDivert) InjectReservedIPHeader(ip []byte) (n int, err error) {
-	r.in.AttachHeader(ip, header.TCPProtocolNumber)
-	return r.raw.Send(ip, inboundAddr)
+func (r *connDivert) InjectReservedIPHeader(ip []byte, reserved int) (err error) {
+	i := r.ipstack.AttachSize()
+	if delta := i - reserved; delta > 0 {
+		r.ipstack.AttachDown(ip[delta:])
+		_, err = r.raw.Send(ip[delta:], r.injectAddr)
+		return err
+	} else {
+		return r.Inject(ip[reserved:])
+	}
 }
 
 func (c *connDivert) Close() error {
@@ -223,8 +289,8 @@ func (c *connDivert) Close() error {
 	if c.closeFn != nil {
 		errs = append(errs, c.closeFn(c.raddr))
 	}
-	if c.tcp != nil {
-		errs = append(errs, c.tcp.Close())
+	if c.tcp != 0 {
+		errs = append(errs, windows.Close(c.tcp))
 	}
 	if c.raw != nil {
 		errs = append(errs, c.raw.Close())

@@ -1,6 +1,8 @@
 package tcp
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -61,7 +63,7 @@ var createTuns = func() func(n int) ([]netip.Addr, error) {
 			}
 
 			{ // set ip
-				var addr = netip.AddrFrom4([4]byte{172, 16, 11, uint8(idx.Load()) + 1})
+				var addr = netip.AddrFrom4([4]byte{10, 1, 1, uint8(idx.Load()) + 1})
 				if addr == lip {
 					return nil, fmt.Errorf("address confilt")
 				}
@@ -119,6 +121,60 @@ func Test_Create_Tuns(t *testing.T) {
 	require.Equal(t, "hello world", string(b[:n]))
 }
 
+func Test_Listen_Local(t *testing.T) {
+
+	t.Run("occupy-local-port", func(t *testing.T) {
+		addr := netip.AddrPortFrom(locIP, randPort())
+
+		{
+			l, addr2, err := listenLocal(addr)
+			require.NoError(t, err)
+			defer l.Close()
+			require.Equal(t, addr2, addr)
+		}
+
+		{
+			l, addr2, err := listenLocal(addr)
+			require.Error(t, err)
+			require.Nil(t, l)
+			require.False(t, addr2.IsValid())
+		}
+	})
+
+	t.Run("auto-alloc-port", func(t *testing.T) {
+		addr := netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 0)
+
+		l, addr2, err := listenLocal(addr)
+		require.NoError(t, err)
+		defer l.Close()
+		require.Equal(t, addr2.Addr(), addr.Addr())
+		require.NotZero(t, addr2.Port())
+	})
+
+	t.Run("auto-alloc-port2", func(t *testing.T) {
+		addr := netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 0)
+
+		l, addr2, err := listenLocal(addr)
+		require.NoError(t, err)
+		defer l.Close()
+		require.Equal(t, addr2.Addr(), addr.Addr())
+		require.NotZero(t, addr2.Port())
+	})
+
+	t.Run("avoid-send-SYN", func(t *testing.T) {
+		addr := netip.AddrPortFrom(locIP, randPort())
+
+		l, _, err := listenLocal(addr)
+		require.NoError(t, err)
+		defer l.Close()
+
+		conn, err := net.DialTimeout("tcp", addr.String(), time.Second*2)
+		require.True(t, errors.Is(err, context.DeadlineExceeded))
+		require.Nil(t, conn)
+	})
+
+}
+
 func Test_BPF_Filter(t *testing.T) {
 	addrs, err := createTuns(2)
 	require.NoError(t, err)
@@ -133,16 +189,16 @@ func Test_BPF_Filter(t *testing.T) {
 		defer conn.Close()
 
 		var noises = [][]byte{
-			buildRawTCP(t, caddr, saddr, 128),
+			buildRawTCP(t, caddr, saddr, make([]byte, 16)),
 
 			// noise
-			buildRawTCP(t, saddr, caddr, 128),
-			buildRawTCP(t, netip.AddrPortFrom(caddr.Addr(), randPort()), saddr, 128),
-			buildRawTCP(t, caddr, netip.AddrPortFrom(caddr.Addr(), randPort()), 128),
+			buildRawTCP(t, saddr, caddr, make([]byte, 16)),
+			buildRawTCP(t, netip.AddrPortFrom(caddr.Addr(), randPort()), saddr, make([]byte, 16)),
+			buildRawTCP(t, caddr, netip.AddrPortFrom(caddr.Addr(), randPort()), make([]byte, 16)),
 			buildRawTCP(t,
 				netip.AddrPortFrom(caddr.Addr(), randPort()),
 				netip.AddrPortFrom(saddr.Addr(), randPort()),
-				128,
+				make([]byte, 16),
 			),
 		}
 

@@ -2,7 +2,6 @@ package tcp
 
 import (
 	"context"
-	crand "crypto/rand"
 	"errors"
 	"io"
 	"math/rand"
@@ -27,8 +26,10 @@ import (
 func Test_UsrStack_PingPong(t *testing.T) {
 	const constNic tcpip.NICID = 123
 
-	addrs, err := createTuns(1)
-	require.NoError(t, err)
+	// todo:
+	// addrs, err := createTuns(1)
+	// require.NoError(t, err)
+	var addrs []netip.Addr
 
 	var constAddr = tcpip.AddrFromSlice(addrs[0].AsSlice())
 
@@ -155,6 +156,14 @@ func pingPongWithUserStackClient(t *testing.T, clientAddr netip.Addr, raw relraw
 			iphdr := header.IPv4(b[:n])
 			iphdr = sum(iphdr) // todo: maybe loopback?
 
+			// tcphdr := header.TCP(iphdr.Payload())
+			// msg := fmt.Sprintf(
+			// 	"%s:%d-->%s:%d",
+			// 	iphdr.SourceAddress(), tcphdr.SourcePort(),
+			// 	iphdr.DestinationAddress(), tcphdr.DestinationPort(),
+			// )
+			// fmt.Println(msg)
+
 			pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(iphdr)})
 
 			for !link.IsAttached() {
@@ -164,15 +173,16 @@ func pingPongWithUserStackClient(t *testing.T, clientAddr netip.Addr, raw relraw
 		}
 	}()
 	go func() { // uplink
-		sum := calcChecksum()
 		for {
 			pkb := link.ReadContext(context.Background())
 
 			s := pkb.ToView().AsSlice()
-			iphdr := header.IPv4(s)
-			iphdr = sum(iphdr)
+			require.Equal(t, 4, header.IPVersion(s))
 
-			_, err := raw.Write(iphdr)
+			iphdr := header.IPv4(s)
+			// iphdr = sum(iphdr)
+
+			_, err := raw.Write(iphdr[iphdr.HeaderLength():])
 			if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
 				break
 			}
@@ -247,12 +257,17 @@ func calcChecksum() func(ipHdr header.IPv4) header.IPv4 {
 	}
 }
 
-func buildRawTCP(t *testing.T, laddr, raddr netip.AddrPort, totalSize int) header.IPv4 {
+func buildRawTCP(t *testing.T, laddr, raddr netip.AddrPort, payload []byte) header.IPv4 {
 	s, err := relraw.NewIPStack(laddr.Addr(), raddr.Addr())
 	require.NoError(t, err)
 
+	iptcp := header.IPv4MinimumSize + header.TCPMinimumSize
+	if laddr.Addr().Is6() {
+		t.Fatal("only support IPv4")
+	}
+	totalSize := iptcp + len(payload)
 	var b = make([]byte, totalSize)
-	crand.Read(b[header.IPv4MinimumSize+header.TCPMinimumSize:])
+	copy(b[iptcp:], payload)
 
 	ts := uint32(time.Now().UnixNano())
 	tcphdr := header.TCP(b[header.IPv4MinimumSize:])
@@ -293,3 +308,8 @@ func randPort() uint16 {
 	}
 	return p
 }
+
+var locIP = func() netip.Addr {
+	c, _ := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 53})
+	return netip.MustParseAddrPort(c.LocalAddr().String()).Addr()
+}()
