@@ -86,6 +86,8 @@ func PingPongWithUserStackClient(t *testing.T, clientAddr netip.Addr, raw relraw
 				time.Sleep(time.Millisecond * 10)
 			}
 			link.InjectInbound(ipv4.ProtocolNumber, pkt)
+
+			pkt.DecRef()
 		}
 	}()
 	go func() { // uplink
@@ -103,6 +105,8 @@ func PingPongWithUserStackClient(t *testing.T, clientAddr netip.Addr, raw relraw
 				break
 			}
 			require.NoError(t, err)
+
+			pkb.DecRef()
 		}
 	}()
 

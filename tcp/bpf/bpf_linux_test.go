@@ -144,7 +144,7 @@ func Test_BPF_Filter(t *testing.T) {
 		}
 	}()
 
-	raw, err := ConnectWithBPF(saddr, caddr)
+	raw, err := Connect(saddr, caddr)
 	require.NoError(t, err)
 	defer raw.Close()
 
@@ -188,7 +188,7 @@ func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
 	// usr-stack with raw-conn
 	var conn net.Conn
 	{
-		raw, err := ConnectWithBPF(cAddr, sAddr)
+		raw, err := Connect(cAddr, sAddr)
 		require.NoError(t, err)
 		defer raw.Close()
 		conn = test.PingPongWithUserStackClient(t, cAddr.Addr(), raw)

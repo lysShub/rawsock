@@ -11,8 +11,8 @@ require (
 
 require (
 	github.com/ebitengine/purego v0.5.1 // indirect
-	github.com/lysShub/dll-go v0.0.0-20240122093239-9b8c1c27c681 // indirect
-	github.com/lysShub/wintun-go v0.0.0-20240123071037-56eed691b4b8
+	github.com/lysShub/dll-go v0.0.0-20240131092034-3f09ae5eff72 // indirect
+	github.com/lysShub/wintun-go v0.0.0-20240131112415-8f3bf638af49
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
 )
 

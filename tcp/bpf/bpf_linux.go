@@ -30,7 +30,7 @@ type listenerBPF struct {
 	readb []byte
 }
 
-func ListenWithBPF(laddr netip.AddrPort) (*listenerBPF, error) {
+func Listen(laddr netip.AddrPort) (*listenerBPF, error) {
 	var l = &listenerBPF{
 		conns: make(map[netip.AddrPort]struct{}, 16),
 		readb: make([]byte, header.IPv6MinimumSize+header.TCPHeaderMaximumSize),
@@ -186,7 +186,7 @@ type connBPF struct {
 
 var _ relraw.RawConn = (*connBPF)(nil)
 
-func ConnectWithBPF(laddr, raddr netip.AddrPort) (*connBPF, error) {
+func Connect(laddr, raddr netip.AddrPort) (*connBPF, error) {
 	var r = &connBPF{raddr: raddr}
 	var err error
 

@@ -16,7 +16,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-func ListenWithDivert(locAddr netip.AddrPort) (*listenerDivert, error) {
+func Listen(locAddr netip.AddrPort) (*listenerDivert, error) {
 	var l = &listenerDivert{
 		conns:    make(map[netip.AddrPort]struct{}, 16),
 		b:        make([]byte, 1536), // todo: mtu
@@ -183,7 +183,7 @@ var outboundAddr = func() *divert.Address {
 
 var _ relraw.RawConn = (*connDivert)(nil)
 
-func ConnectWithDivert(laddr, raddr netip.AddrPort) (*connDivert, error) {
+func Connect(laddr, raddr netip.AddrPort) (*connDivert, error) {
 	var r = &connDivert{
 		raddr: raddr,
 	}

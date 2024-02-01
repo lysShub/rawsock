@@ -59,7 +59,7 @@ func Test_Connect(t *testing.T) {
 			saddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
 			caddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
 		)
-		raw, err := ConnectWithDivert(saddr, caddr)
+		raw, err := Connect(saddr, caddr)
 		require.NoError(t, err)
 
 		// send
@@ -110,7 +110,7 @@ func Test_Connect(t *testing.T) {
 		}()
 		time.Sleep(time.Second)
 
-		raw, err := ConnectWithDivert(caddr, saddr)
+		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
 		syn := test.BuildRawTCP(t, caddr, saddr, nil)
 		tcphdr := header.TCP(syn.Payload())
@@ -176,7 +176,7 @@ func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {
 	// usr-stack with raw-conn
 	var conn net.Conn
 	{
-		raw, err := ConnectWithDivert(caddr, saddr)
+		raw, err := Connect(caddr, saddr)
 
 		require.NoError(t, err)
 		defer raw.Close()

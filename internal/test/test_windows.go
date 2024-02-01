@@ -78,10 +78,7 @@ func (t *TunTuple) Close() error {
 }
 
 func CreateTunTuple() (*TunTuple, error) {
-	tun, err := wintun.LoadWintun(wintun.DLL)
-	if err != nil {
-		panic(err)
-	}
+	wintun.MustLoad(wintun.DLL)
 
 	var addrs = tunTupleAddrsGener()
 	var tt = &TunTuple{
@@ -92,7 +89,7 @@ func CreateTunTuple() (*TunTuple, error) {
 	for i, addr := range addrs {
 		name := fmt.Sprintf("test%s", hex.EncodeToString([]byte(addr.String())))
 
-		ap, err := tun.CreateAdapter(name, wintun.TunType("Wintun"))
+		ap, err := wintun.CreateAdapter(name, wintun.TunType("Wintun"))
 		if err != nil {
 			return nil, err
 		}
