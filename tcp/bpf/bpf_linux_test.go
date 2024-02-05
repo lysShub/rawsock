@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/internal/test"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -54,30 +55,47 @@ func Test_Create_Tuns(t *testing.T) {
 	require.Equal(t, "hello world", string(b[:n]))
 }
 
-func Test_Listen_Local(t *testing.T) {
+func Test_Use_Local_Port(t *testing.T) {
 
-	t.Run("occupy-local-port", func(t *testing.T) {
+	t.Run("mutiple-use", func(t *testing.T) {
 		addr := netip.AddrPortFrom(test.LocIP, test.RandPort())
 
-		{
-			l, addr2, err := listenLocal(addr)
-			require.NoError(t, err)
-			defer l.Close()
-			require.Equal(t, addr2, addr)
-		}
+		l1, addr1, err := listenLocal(addr, false)
+		require.NoError(t, err)
+		defer l1.Close()
+		require.Equal(t, addr1, addr)
 
-		{
-			l, addr2, err := listenLocal(addr)
-			require.Error(t, err)
-			require.Nil(t, l)
-			require.False(t, addr2.IsValid())
-		}
+		l1, addr2, err := listenLocal(addr, false)
+		require.Error(t, err)
+		require.Nil(t, l1)
+		require.False(t, addr2.IsValid())
+	})
+
+	t.Run("mutiple-use-not-used", func(t *testing.T) {
+		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+
+		l, _, err := listenLocal(addr, true)
+		require.True(t, errors.Is(err, config.ErrInvalidConfigUsedPort))
+		require.Nil(t, l)
+	})
+
+	t.Run("mutiple-use-after-used", func(t *testing.T) {
+		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+
+		l1, _, err := listenLocal(addr, false)
+		require.NoError(t, err)
+		defer l1.Close()
+
+		l2, addr1, err := listenLocal(addr, true)
+		require.NoError(t, err)
+		require.Nil(t, l2)
+		require.Equal(t, addr, addr1)
 	})
 
 	t.Run("auto-alloc-port", func(t *testing.T) {
 		addr := netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 0)
 
-		l, addr2, err := listenLocal(addr)
+		l, addr2, err := listenLocal(addr, false)
 		require.NoError(t, err)
 		defer l.Close()
 		require.Equal(t, addr2.Addr(), addr.Addr())
@@ -87,7 +105,7 @@ func Test_Listen_Local(t *testing.T) {
 	t.Run("auto-alloc-port2", func(t *testing.T) {
 		addr := netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 0)
 
-		l, addr2, err := listenLocal(addr)
+		l, addr2, err := listenLocal(addr, false)
 		require.NoError(t, err)
 		defer l.Close()
 		require.Equal(t, addr2.Addr(), addr.Addr())
@@ -97,7 +115,7 @@ func Test_Listen_Local(t *testing.T) {
 	t.Run("avoid-send-SYN", func(t *testing.T) {
 		addr := netip.AddrPortFrom(test.LocIP, test.RandPort())
 
-		l, _, err := listenLocal(addr)
+		l, _, err := listenLocal(addr, false)
 		require.NoError(t, err)
 		defer l.Close()
 

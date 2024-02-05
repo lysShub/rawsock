@@ -11,20 +11,30 @@ import (
 	"github.com/lysShub/divert-go"
 	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/internal"
+	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/tcp"
 	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-func Listen(locAddr netip.AddrPort) (*listenerDivert, error) {
-	var l = &listenerDivert{
+// set divert priority, for Listen will use p and p+1
+func Priority(p int16) relraw.Opt {
+	return func(c *config.Config) {
+		c.DivertPriorty = p
+	}
+}
+
+func Listen(locAddr netip.AddrPort, opts ...relraw.Opt) (*listener, error) {
+	cfg := relraw.Options(opts...)
+
+	var l = &listener{
 		conns:    make(map[netip.AddrPort]struct{}, 16),
-		b:        make([]byte, 1536), // todo: mtu
-		priority: 11,                 //todo: from cfg
+		b:        make([]byte, cfg.MTU),
+		priority: cfg.DivertPriorty,
 	}
 
 	var err error
-	l.tcp, l.addr, err = bindLocal(locAddr)
+	l.tcp, l.addr, err = bindLocal(locAddr, cfg.UsedPort)
 	if err != nil {
 		l.Close()
 		return nil, err
@@ -52,7 +62,7 @@ func Listen(locAddr netip.AddrPort) (*listenerDivert, error) {
 	return l, err
 }
 
-type listenerDivert struct {
+type listener struct {
 
 	/*
 		Structure
@@ -79,7 +89,7 @@ type listenerDivert struct {
 	b []byte
 }
 
-func (l *listenerDivert) Close() error {
+func (l *listener) Close() error {
 	var errs []error
 
 	if l.tcp != 0 {
@@ -91,7 +101,7 @@ func (l *listenerDivert) Close() error {
 	return errors.Join(errs...)
 }
 
-func (l *listenerDivert) Accept() (relraw.RawConn, error) {
+func (l *listener) Accept() (relraw.RawConn, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for {
@@ -132,7 +142,7 @@ func (l *listenerDivert) Accept() (relraw.RawConn, error) {
 			l.conns[raddr] = struct{}{}
 			l.mu.Unlock()
 
-			var conn = &connDivert{
+			var conn = &conn{
 				laddr:      l.addr,
 				raddr:      raddr,
 				loopback:   addr.Loopback(),
@@ -148,7 +158,7 @@ func (l *listenerDivert) Accept() (relraw.RawConn, error) {
 	}
 }
 
-func (l *listenerDivert) deleteConn(raddr netip.AddrPort) error {
+func (l *listener) deleteConn(raddr netip.AddrPort) error {
 	if l == nil {
 		return nil
 	}
@@ -158,7 +168,7 @@ func (l *listenerDivert) deleteConn(raddr netip.AddrPort) error {
 	return nil
 }
 
-type connDivert struct {
+type conn struct {
 	laddr, raddr netip.AddrPort
 	loopback     bool
 
@@ -181,16 +191,17 @@ var outboundAddr = func() *divert.Address {
 	return addr
 }()
 
-var _ relraw.RawConn = (*connDivert)(nil)
+var _ relraw.RawConn = (*conn)(nil)
 
-func Connect(laddr, raddr netip.AddrPort) (*connDivert, error) {
-	var r = &connDivert{
+func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Opt) (*conn, error) {
+	cfg := relraw.Options(opts...)
+	var r = &conn{
 		raddr: raddr,
 	}
 	var err error
 
 	// listenLocal, forbid other process use this port
-	r.tcp, r.laddr, err = bindLocal(laddr)
+	r.tcp, r.laddr, err = bindLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		r.Close()
 		return nil, err
@@ -208,10 +219,10 @@ func Connect(laddr, raddr netip.AddrPort) (*connDivert, error) {
 	r.loopback = internal.IsWindowLoopBack(r.laddr.Addr()) &&
 		internal.IsWindowLoopBack(r.raddr.Addr())
 
-	return r, r.init(0) // todo: from cfg
+	return r, r.init(cfg.DivertPriorty)
 }
 
-func (r *connDivert) init(priority int16) (err error) {
+func (r *conn) init(priority int16) (err error) {
 	var filter string
 	if r.loopback {
 		// loopback recv as outbound packet, so raddr is localAddr laddr is remoteAddr
@@ -237,7 +248,7 @@ func (r *connDivert) init(priority int16) (err error) {
 	return nil
 }
 
-func bindLocal(laddr netip.AddrPort) (windows.Handle, netip.AddrPort, error) {
+func bindLocal(laddr netip.AddrPort, usedPort bool) (windows.Handle, netip.AddrPort, error) {
 	var sa windows.Sockaddr
 	var af int = windows.AF_INET
 	if laddr.Addr().Is4() {
@@ -256,10 +267,15 @@ func bindLocal(laddr netip.AddrPort) (windows.Handle, netip.AddrPort, error) {
 	}
 
 	if err := windows.Bind(fd, sa); err != nil {
+		if err == windows.WSAEADDRINUSE && usedPort {
+			return 0, laddr, nil
+		}
 		return windows.InvalidHandle, netip.AddrPort{}, &net.OpError{
 			Op:  "bind",
 			Err: err,
 		}
+	} else if usedPort {
+		return windows.InvalidHandle, netip.AddrPort{}, config.ErrInvalidConfigUsedPort
 	}
 
 	if laddr.Port() == 0 {
@@ -281,12 +297,12 @@ func bindLocal(laddr netip.AddrPort) (windows.Handle, netip.AddrPort, error) {
 	return fd, laddr, nil
 }
 
-func (r *connDivert) Read(b []byte) (n int, err error) {
+func (r *conn) Read(b []byte) (n int, err error) {
 	n, _, err = r.raw.Recv(b)
 	return n, err
 }
 
-func (r *connDivert) Write(b []byte) (n int, err error) {
+func (r *conn) Write(b []byte) (n int, err error) {
 	i := r.ipstack.AttachSize()
 	ip := make([]byte, i+len(b))
 	copy(ip[i:], b)
@@ -296,7 +312,7 @@ func (r *connDivert) Write(b []byte) (n int, err error) {
 	return max(n-i, 0), err
 }
 
-func (r *connDivert) WriteReservedIPHeader(ip []byte, reserved int) (err error) {
+func (r *conn) WriteReservedIPHeader(ip []byte, reserved int) (err error) {
 	i := r.ipstack.AttachSize()
 	if delta := i - reserved; delta > 0 {
 		r.ipstack.AttachUp(ip[delta:])
@@ -308,7 +324,7 @@ func (r *connDivert) WriteReservedIPHeader(ip []byte, reserved int) (err error) 
 	}
 }
 
-func (r *connDivert) Inject(b []byte) (err error) {
+func (r *conn) Inject(b []byte) (err error) {
 	i := r.ipstack.AttachSize()
 	ip := make([]byte, i+len(b))
 	copy(ip[i:], b)
@@ -318,7 +334,7 @@ func (r *connDivert) Inject(b []byte) (err error) {
 	return err
 }
 
-func (r *connDivert) InjectReservedIPHeader(ip []byte, reserved int) (err error) {
+func (r *conn) InjectReservedIPHeader(ip []byte, reserved int) (err error) {
 	i := r.ipstack.AttachSize()
 	if delta := i - reserved; delta > 0 {
 		r.ipstack.AttachDown(ip[delta:])
@@ -329,7 +345,7 @@ func (r *connDivert) InjectReservedIPHeader(ip []byte, reserved int) (err error)
 	}
 }
 
-func (c *connDivert) Close() error {
+func (c *conn) Close() error {
 	var errs []error
 	if c.closeFn != nil {
 		errs = append(errs, c.closeFn(c.raddr))
@@ -343,11 +359,11 @@ func (c *connDivert) Close() error {
 	return errors.Join(errs...)
 }
 
-func (r *connDivert) LocalAddr() net.Addr {
+func (r *conn) LocalAddr() net.Addr {
 	return &net.TCPAddr{IP: r.laddr.Addr().AsSlice(), Port: int(r.laddr.Port())}
 }
-func (r *connDivert) RemoteAddr() net.Addr {
+func (r *conn) RemoteAddr() net.Addr {
 	return &net.TCPAddr{IP: r.raddr.Addr().AsSlice(), Port: int(r.raddr.Port())}
 }
-func (r *connDivert) LocalAddrAddrPort() netip.AddrPort  { return r.laddr }
-func (r *connDivert) RemoteAddrAddrPort() netip.AddrPort { return r.raddr }
+func (r *conn) LocalAddrAddrPort() netip.AddrPort  { return r.laddr }
+func (r *conn) RemoteAddrAddrPort() netip.AddrPort { return r.raddr }

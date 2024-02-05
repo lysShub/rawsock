@@ -5,8 +5,7 @@ package tun
 
 import "net"
 
-// with wintun
-func NewRawWithTUN(laddr, raddr *net.TCPAddr) (net.Conn, error) {
+func Connect(laddr, raddr *net.TCPAddr) (net.Conn, error) {
 
 	return nil, nil
 }

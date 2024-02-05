@@ -1,6 +1,7 @@
 package tcp
 
 import (
+	"errors"
 	"io"
 	"net"
 	"net/netip"
@@ -8,8 +9,10 @@ import (
 	"time"
 
 	"github.com/lysShub/divert-go"
+	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/internal/test"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
@@ -50,6 +53,41 @@ func Test_Create_Tuns(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, string(b[:n]), "hello world")
+}
+
+func Test_Use_Local_Port(t *testing.T) {
+	t.Run("mutiple-use", func(t *testing.T) {
+		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+
+		fd1, _, err := bindLocal(addr, false)
+		require.NoError(t, err)
+		defer windows.Close(fd1)
+
+		fd2, _, err := bindLocal(addr, false)
+		require.True(t, errors.Is(err, windows.WSAEADDRINUSE))
+		require.Equal(t, windows.InvalidHandle, fd2)
+	})
+
+	t.Run("mutiple-use-not-used", func(t *testing.T) {
+		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+
+		fd1, _, err := bindLocal(addr, true)
+		require.True(t, errors.Is(err, config.ErrInvalidConfigUsedPort))
+		require.Equal(t, windows.InvalidHandle, fd1)
+	})
+
+	t.Run("mutiple-use-after-used", func(t *testing.T) {
+		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+
+		fd1, _, err := bindLocal(addr, false)
+		require.NoError(t, err)
+		defer windows.Close(fd1)
+
+		fd2, addr1, err := bindLocal(addr, true)
+		require.NoError(t, err)
+		require.Equal(t, windows.Handle(0), fd2)
+		require.Equal(t, addr, addr1)
+	})
 }
 
 func Test_Connect(t *testing.T) {

@@ -7,17 +7,19 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"sync"
 	"unsafe"
 
 	"github.com/lysShub/relraw"
+	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/tcp"
 	"golang.org/x/net/bpf"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-type listenerBPF struct {
+type listener struct {
 	laddr netip.AddrPort
 
 	tcp *net.TCPListener
@@ -30,14 +32,16 @@ type listenerBPF struct {
 	readb []byte
 }
 
-func Listen(laddr netip.AddrPort) (*listenerBPF, error) {
-	var l = &listenerBPF{
+func Listen(laddr netip.AddrPort, opts ...relraw.Opt) (*listener, error) {
+	cfg := relraw.Options(opts...)
+
+	var l = &listener{
 		conns: make(map[netip.AddrPort]struct{}, 16),
 		readb: make([]byte, header.IPv6MinimumSize+header.TCPHeaderMaximumSize),
 	}
 
 	var err error
-	l.tcp, l.laddr, err = listenLocal(laddr)
+	l.tcp, l.laddr, err = listenLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		l.Close()
 		return nil, err
@@ -60,7 +64,7 @@ func Listen(laddr netip.AddrPort) (*listenerBPF, error) {
 	return l, nil
 }
 
-func (l *listenerBPF) setSynFilterBPF() error {
+func (l *listener) setSynFilterBPF() error {
 	var ins = []bpf.Instruction{
 		// load ip version
 		bpf.LoadAbsolute{Off: 0, Size: 1},
@@ -116,7 +120,7 @@ func (l *listenerBPF) setSynFilterBPF() error {
 }
 
 // todo: not support private proto that not start with tcp SYN flag
-func (l *listenerBPF) Accept() (relraw.RawConn, error) {
+func (l *listener) Accept() (relraw.RawConn, error) {
 	for {
 		n, err := l.raw.Read(l.readb)
 		if err != nil {
@@ -154,7 +158,7 @@ func (l *listenerBPF) Accept() (relraw.RawConn, error) {
 	}
 }
 
-func (l *listenerBPF) deleteConn(raddr netip.AddrPort) error {
+func (l *listener) deleteConn(raddr netip.AddrPort) error {
 	if l == nil {
 		return nil
 	}
@@ -164,7 +168,7 @@ func (l *listenerBPF) deleteConn(raddr netip.AddrPort) error {
 	return nil
 }
 
-func (l *listenerBPF) Close() error {
+func (l *listener) Close() error {
 	var errs []error
 	if l.tcp != nil {
 		errs = append(errs, l.tcp.Close())
@@ -186,11 +190,13 @@ type connBPF struct {
 
 var _ relraw.RawConn = (*connBPF)(nil)
 
-func Connect(laddr, raddr netip.AddrPort) (*connBPF, error) {
+func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Opt) (*connBPF, error) {
+	cfg := relraw.Options(opts...)
+
 	var r = &connBPF{raddr: raddr}
 	var err error
 
-	r.tcp, r.laddr, err = listenLocal(laddr)
+	r.tcp, r.laddr, err = listenLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, errors.Join(err, r.Close())
 	}
@@ -283,11 +289,22 @@ func setPortsFilterBPF(fd uintptr, localPort, remotePort uint16) error {
 	return unix.SetsockoptSockFprog(int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog)
 }
 
-// listenLocal occupy local port and avoid system stack send RST
-func listenLocal(laddr netip.AddrPort) (*net.TCPListener, netip.AddrPort, error) {
+// listenLocal occupy local port and avoid system stack reply RST
+func listenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.AddrPort, error) {
 	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: laddr.Addr().AsSlice(), Port: int(laddr.Port())})
 	if err != nil {
+		if usedPort {
+			if ne, ok := err.(*net.OpError); ok {
+				if oe, ok := ne.Unwrap().(*os.SyscallError); ok {
+					if oe.Err == unix.EADDRINUSE {
+						return nil, laddr, nil
+					}
+				}
+			}
+		}
 		return nil, netip.AddrPort{}, err
+	} else if usedPort {
+		return nil, netip.AddrPort{}, config.ErrInvalidConfigUsedPort
 	}
 
 	raw, err := l.SyscallConn()
