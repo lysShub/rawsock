@@ -178,8 +178,9 @@ func calcChecksum() func(ipHdr header.IPv4) header.IPv4 {
 }
 
 func BuildRawTCP(t *testing.T, laddr, raddr netip.AddrPort, payload []byte) header.IPv4 {
-	s, err := relraw.NewIPStack(laddr.Addr(), raddr.Addr())
-	require.NoError(t, err)
+
+	// s, err := relraw.NewIPStack(laddr.Addr(), raddr.Addr())
+	// require.NoError(t, err)
 
 	iptcp := header.IPv4MinimumSize + header.TCPMinimumSize
 	if laddr.Addr().Is6() {
@@ -202,9 +203,12 @@ func BuildRawTCP(t *testing.T, laddr, raddr netip.AddrPort, payload []byte) head
 		Checksum:   0,
 	})
 
-	psoSum := s.AttachHeader(b, header.TCPProtocolNumber)
+	s := relraw.NewIPStack(laddr.Addr(), raddr.Addr(), header.TCPProtocolNumber, relraw.ReservedIPheader)
+	b = s.AttachOutbound(b)
 
-	tcphdr.SetChecksum(^checksum.Checksum(tcphdr, psoSum))
+	// psoSum := s.AttachHeader(b, header.TCPProtocolNumber)
+
+	// tcphdr.SetChecksum(^checksum.Checksum(tcphdr, psoSum))
 
 	require.True(t, header.IPv4(b).IsChecksumValid())
 	require.True(t,

@@ -345,6 +345,7 @@ func (r *connBPF) Write(b []byte) (n int, err error) {
 	return r.raw.Write(b)
 }
 
+// todo
 func (r *connBPF) WriteReservedIPHeader(ip []byte, reserved int) (err error) {
 	return
 }

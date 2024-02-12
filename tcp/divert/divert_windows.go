@@ -179,7 +179,7 @@ type conn struct {
 
 	injectAddr *divert.Address
 
-	ipstack *relraw.IPStack2
+	ipstack *relraw.IPStack
 
 	closeFn tcp.CloseCallback
 }
@@ -243,7 +243,11 @@ func (r *conn) init(priority int16) (err error) {
 		return err
 	}
 
-	r.ipstack = relraw.NewIPStack2(r.laddr.Addr(), r.raddr.Addr(), header.TCPProtocolNumber)
+	r.ipstack = relraw.NewIPStack(
+		r.laddr.Addr(), r.raddr.Addr(),
+		header.TCPProtocolNumber,
+		relraw.ReservedIPheader,
+	)
 
 	return nil
 }
@@ -303,19 +307,19 @@ func (r *conn) Read(b []byte) (n int, err error) {
 }
 
 func (r *conn) Write(b []byte) (n int, err error) {
-	i := r.ipstack.AttachSize()
+	i := r.ipstack.Size()
 	ip := make([]byte, i+len(b))
 	copy(ip[i:], b)
-	r.ipstack.AttachUp(ip)
+	r.ipstack.AttachOutbound(ip)
 
 	n, err = r.raw.Send(ip, outboundAddr)
 	return max(n-i, 0), err
 }
 
 func (r *conn) WriteReservedIPHeader(ip []byte, reserved int) (err error) {
-	i := r.ipstack.AttachSize()
+	i := r.ipstack.Size()
 	if delta := i - reserved; delta > 0 {
-		r.ipstack.AttachUp(ip[delta:])
+		r.ipstack.AttachOutbound(ip[delta:])
 		_, err = r.raw.Send(ip, outboundAddr)
 		return err
 	} else {
@@ -325,19 +329,19 @@ func (r *conn) WriteReservedIPHeader(ip []byte, reserved int) (err error) {
 }
 
 func (r *conn) Inject(b []byte) (err error) {
-	i := r.ipstack.AttachSize()
+	i := r.ipstack.Size()
 	ip := make([]byte, i+len(b))
 	copy(ip[i:], b)
-	r.ipstack.AttachDown(ip)
+	r.ipstack.AttachInbound(ip)
 
 	_, err = r.raw.Send(ip, r.injectAddr)
 	return err
 }
 
 func (r *conn) InjectReservedIPHeader(ip []byte, reserved int) (err error) {
-	i := r.ipstack.AttachSize()
+	i := r.ipstack.Size()
 	if delta := i - reserved; delta > 0 {
-		r.ipstack.AttachDown(ip[delta:])
+		r.ipstack.AttachInbound(ip[delta:])
 		_, err = r.raw.Send(ip[delta:], r.injectAddr)
 		return err
 	} else {
