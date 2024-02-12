@@ -6,9 +6,11 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/internal/test"
 	"github.com/stretchr/testify/require"
@@ -55,7 +57,7 @@ func Test_Create_Tuns(t *testing.T) {
 	require.Equal(t, "hello world", string(b[:n]))
 }
 
-func Test_Use_Local_Port(t *testing.T) {
+func Test_ListenLocal(t *testing.T) {
 
 	t.Run("mutiple-use", func(t *testing.T) {
 		addr := netip.AddrPortFrom(test.LocIP, test.RandPort())
@@ -176,6 +178,33 @@ func Test_BPF_Filter(t *testing.T) {
 		require.Equal(t, caddr.Port(), tcpHdr.SourcePort())
 		require.Equal(t, saddr.Port(), tcpHdr.DestinationPort())
 	}
+}
+
+func Test_Recv_Ctx(t *testing.T) {
+	var (
+		caddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+		saddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+	)
+
+	t.Run("cancel", func(t *testing.T) {
+		const delay = time.Millisecond * 100
+		conn, err := Connect(caddr, saddr, relraw.CtxCancelDelay(delay))
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			time.Sleep(time.Second)
+			cancel()
+		}()
+
+		var ip = make([]byte, 1536)
+		s := time.Now()
+		n, err := conn.ReadCtx(ctx, ip)
+		require.True(t, errors.Is(err, os.ErrDeadlineExceeded))
+		require.Zero(t, n)
+		require.Less(t, time.Since(s), time.Second+2*delay)
+	})
+	// todo
 }
 
 func Test_RawConn_Dial_UsrStack_PingPong(t *testing.T) {

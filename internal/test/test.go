@@ -70,15 +70,14 @@ func PingPongWithUserStackClient(t *testing.T, clientAddr netip.Addr, raw relraw
 			require.NoError(t, err)
 
 			iphdr := header.IPv4(b[:n])
-			iphdr = sum(iphdr) // todo: maybe loopback?
+			iphdr = sum(iphdr) // todo: maybe TX?
 
 			// tcphdr := header.TCP(iphdr.Payload())
-			// msg := fmt.Sprintf(
-			// 	"%s:%d-->%s:%d",
+			// fmt.Printf(
+			// 	"%s:%d-->%s:%d	\n",
 			// 	iphdr.SourceAddress(), tcphdr.SourcePort(),
 			// 	iphdr.DestinationAddress(), tcphdr.DestinationPort(),
 			// )
-			// fmt.Println(msg)
 
 			pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(iphdr)})
 
@@ -97,10 +96,15 @@ func PingPongWithUserStackClient(t *testing.T, clientAddr netip.Addr, raw relraw
 			s := pkb.ToView().AsSlice()
 			require.Equal(t, 4, header.IPVersion(s))
 
-			iphdr := header.IPv4(s)
-			// iphdr = sum(iphdr)
+			// iphdr := header.IPv4(s)
+			// tcphdr := header.TCP(iphdr.Payload())
+			// fmt.Printf(
+			// 	"%s:%d-->%s:%d	\n",
+			// 	iphdr.SourceAddress(), tcphdr.SourcePort(),
+			// 	iphdr.DestinationAddress(), tcphdr.DestinationPort(),
+			// )
 
-			_, err := raw.Write(iphdr[iphdr.HeaderLength():])
+			err := raw.WriteRaw(s)
 			if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
 				break
 			}

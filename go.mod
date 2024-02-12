@@ -3,6 +3,7 @@ module github.com/lysShub/relraw
 go 1.21
 
 require (
+	github.com/lysShub/divert-go v0.0.0-20240212080231-0b1a1334331a
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/net v0.20.0
 	golang.org/x/sys v0.16.0
@@ -19,7 +20,6 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/btree v1.1.2 // indirect
-	github.com/lysShub/divert-go v0.0.0-20240130074751-9d330fb4aa5a // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

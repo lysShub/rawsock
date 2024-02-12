@@ -4,11 +4,13 @@
 package bpf
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/netip"
 	"os"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/lysShub/relraw"
@@ -185,6 +187,10 @@ type connBPF struct {
 
 	raw *net.IPConn
 
+	ipstack *relraw.IPStack
+
+	ctxCancelDelay time.Duration
+
 	closeFn tcp.CloseCallback
 }
 
@@ -193,23 +199,13 @@ var _ relraw.RawConn = (*connBPF)(nil)
 func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Opt) (*connBPF, error) {
 	cfg := relraw.Options(opts...)
 
-	var r = &connBPF{raddr: raddr}
+	var r = &connBPF{raddr: raddr, ctxCancelDelay: cfg.CtxCancelDelay}
 	var err error
 
 	r.tcp, r.laddr, err = listenLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, errors.Join(err, r.Close())
 	}
-
-	// if !internal.ValideConnectAddrs(r.laddr.Addr(), r.raddr.Addr()) {
-	// 	r.Close()
-	// 	return nil, &net.OpError{
-	// 		Op:     "listen",
-	// 		Source: r.LocalAddr(),
-	// 		Addr:   r.RemoteAddr(),
-	// 		Err:    fmt.Errorf("invalid address"),
-	// 	}
-	// }
 
 	return r, r.init()
 }
@@ -233,7 +229,7 @@ func (r *connBPF) init() (err error) {
 			if err != nil {
 				return
 			}
-			err = setPortsFilterBPF(0, r.laddr.Port(), r.raddr.Port())
+			err = setPortsFilterBPF(fd, r.laddr.Port(), r.raddr.Port())
 			if err != nil {
 				return
 			}
@@ -242,6 +238,12 @@ func (r *connBPF) init() (err error) {
 			return errors.Join(err, r.Close())
 		}
 	}
+
+	r.ipstack = relraw.NewIPStack(
+		r.laddr.Addr(), r.raddr.Addr(),
+		header.TCPProtocolNumber,
+		relraw.ReservedIPheader, relraw.UpdateChecksum,
+	)
 
 	return nil
 }
@@ -294,13 +296,17 @@ func listenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: laddr.Addr().AsSlice(), Port: int(laddr.Port())})
 	if err != nil {
 		if usedPort {
-			if ne, ok := err.(*net.OpError); ok {
-				if oe, ok := ne.Unwrap().(*os.SyscallError); ok {
-					if oe.Err == unix.EADDRINUSE {
-						return nil, laddr, nil
-					}
-				}
+			if errors.Is(err, unix.EADDRINUSE) {
+				return nil, laddr, nil
 			}
+
+			// if ne, ok := err.(*net.OpError); ok {
+			// 	if oe, ok := ne.Unwrap().(*os.SyscallError); ok {
+			// 		if oe.Err == unix.EADDRINUSE {
+			// 			return nil, laddr, nil
+			// 		}
+			// 	}
+			// }
 		}
 		return nil, netip.AddrPort{}, err
 	} else if usedPort {
@@ -338,23 +344,82 @@ func listenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 	return l, netip.AddrPortFrom(laddr.Addr(), addr.Port()), nil
 }
 
-func (r *connBPF) Read(b []byte) (n int, err error) {
-	return r.raw.Read(b)
+func (r *connBPF) Read(ip []byte) (n int, err error) {
+	return r.raw.Read(ip)
 }
+
+func (r *connBPF) ReadCtx(ctx context.Context, ip []byte) (n int, err error) {
+	for {
+		err = r.raw.SetReadDeadline(time.Now().Add(r.ctxCancelDelay))
+		if err != nil {
+			return 0, err
+		}
+
+		n, err = r.raw.Read(ip)
+		if err == nil {
+			return
+		} else if errors.Is(err, os.ErrDeadlineExceeded) {
+			select {
+			case <-ctx.Done():
+				return 0, os.ErrDeadlineExceeded
+			default:
+			}
+		} else {
+			return 0, err
+		}
+	}
+}
+
 func (r *connBPF) Write(b []byte) (n int, err error) {
+	i := r.ipstack.Size()
+	ip := make([]byte, i+len(b))
+	copy(ip[i:], b)
+	r.ipstack.AttachOutbound(ip)
+
 	return r.raw.Write(b)
 }
 
-// todo
+func (r *connBPF) WriteRaw(ip []byte) (err error) {
+	_, err = r.raw.Write(ip)
+	return err
+}
+
 func (r *connBPF) WriteReservedIPHeader(ip []byte, reserved int) (err error) {
-	return
+	i := r.ipstack.Size()
+	if delta := i - reserved; delta >= 0 {
+		r.ipstack.AttachOutbound(ip[delta:])
+		_, err = r.raw.Write(ip[delta:])
+		return err
+	} else {
+		_, err = r.Write(ip[reserved:])
+		return err
+	}
 }
 
 func (r *connBPF) Inject(b []byte) (err error) {
-	return
+	i := r.ipstack.Size()
+	ip := make([]byte, i+len(b))
+	copy(ip[i:], b)
+	r.ipstack.AttachInbound(ip)
+
+	_, err = r.raw.Write(b)
+	return err
 }
-func (r *connBPF) InjectReservedIPHeader(ip []byte, reserved int) (err error) {
-	return
+
+func (r *connBPF) InjectRaw(ip []byte) (err error) {
+	_, err = r.raw.Write(ip)
+	return err
+}
+
+func (r *connBPF) InjectReservedIPHeader(b []byte, reserved int) (err error) {
+	i := r.ipstack.Size()
+	if delta := i - reserved; delta > 0 {
+		r.ipstack.AttachInbound(b[delta:])
+		_, err = r.raw.Write(b[delta:])
+		return err
+	} else {
+		return r.Inject(b[reserved:])
+	}
 }
 
 func (r *connBPF) Close() error {

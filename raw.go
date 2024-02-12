@@ -1,6 +1,7 @@
 package relraw
 
 import (
+	"context"
 	"net"
 	"net/netip"
 )
@@ -18,9 +19,15 @@ type RawConn interface {
 	// Read read ip packet from remote address
 	Read(ip []byte) (n int, err error)
 
+	// ReadCtx read ip packet from remote address
+	ReadCtx(ctx context.Context, ip []byte) (n int, err error)
+
 	// Write write tcp/udp/icmp packet to remote address, tcp/udp packet
 	// should set checksum that without pseudo checksum
 	Write(b []byte) (n int, err error)
+
+	// WriteRaw write ip packet to remote address
+	WriteRaw(ip []byte) (err error)
 
 	// WriteReservedIPHeader Write tcp/udp/icmp with prefix reserved bytes
 	WriteReservedIPHeader(ip []byte, reserved int) (err error)
@@ -28,6 +35,9 @@ type RawConn interface {
 	// Inject inject tcp/udp/icmp packet to local address, tcp/udp packet
 	// should set checksum that without pseudo checksum
 	Inject(b []byte) (err error)
+
+	// InjectRaw inject ip packet to local address
+	InjectRaw(ip []byte) (err error)
 
 	// InjectReservedIPHeader Inject tcp/udp/icmp with prefix reserved bytes
 	InjectReservedIPHeader(ip []byte, reserved int) (err error)

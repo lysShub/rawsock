@@ -1,7 +1,6 @@
 package test
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -28,7 +27,7 @@ func CreateTunTuple() (*TunTuple, error) {
 	}
 
 	for i, addr := range addrs {
-		name := fmt.Sprintf("test%s", hex.EncodeToString([]byte(addr.String())))
+		name := fmt.Sprintf("test%d", addr.As4()[3])
 
 		{
 			file, err := os.OpenFile("/dev/net/tun", os.O_RDWR, 0)

@@ -1,17 +1,22 @@
 package config
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 type Config struct {
-	UsedPort bool
-	MTU      int
+	UsedPort       bool
+	MTU            int
+	CtxCancelDelay time.Duration
 
 	DivertPriorty int16
 }
 
 var Default = Config{
-	UsedPort: false,
-	MTU:      1536,
+	UsedPort:       false,
+	MTU:            1536,
+	CtxCancelDelay: time.Millisecond * 100,
 
 	DivertPriorty: 0,
 }

@@ -1,6 +1,7 @@
 package tcp
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -246,7 +247,7 @@ func (r *conn) init(priority int16) (err error) {
 	r.ipstack = relraw.NewIPStack(
 		r.laddr.Addr(), r.raddr.Addr(),
 		header.TCPProtocolNumber,
-		relraw.ReservedIPheader,
+		relraw.ReservedIPheader, relraw.UpdateChecksum,
 	)
 
 	return nil
@@ -301,8 +302,13 @@ func bindLocal(laddr netip.AddrPort, usedPort bool) (windows.Handle, netip.AddrP
 	return fd, laddr, nil
 }
 
-func (r *conn) Read(b []byte) (n int, err error) {
-	n, _, err = r.raw.Recv(b)
+func (r *conn) Read(ip []byte) (n int, err error) {
+	n, _, err = r.raw.Recv(ip)
+	return n, err
+}
+
+func (r *conn) ReadCtx(ctx context.Context, ip []byte) (n int, err error) {
+	n, err = r.raw.RecvCtx(ctx, ip, nil)
 	return n, err
 }
 
@@ -316,11 +322,16 @@ func (r *conn) Write(b []byte) (n int, err error) {
 	return max(n-i, 0), err
 }
 
+func (r *conn) WriteRaw(ip []byte) (err error) {
+	_, err = r.raw.Send(ip, outboundAddr)
+	return err
+}
+
 func (r *conn) WriteReservedIPHeader(ip []byte, reserved int) (err error) {
 	i := r.ipstack.Size()
-	if delta := i - reserved; delta > 0 {
+	if delta := i - reserved; delta >= 0 {
 		r.ipstack.AttachOutbound(ip[delta:])
-		_, err = r.raw.Send(ip, outboundAddr)
+		_, err = r.raw.Send(ip[delta:], outboundAddr)
 		return err
 	} else {
 		_, err = r.Write(ip[reserved:])
@@ -338,14 +349,19 @@ func (r *conn) Inject(b []byte) (err error) {
 	return err
 }
 
-func (r *conn) InjectReservedIPHeader(ip []byte, reserved int) (err error) {
+func (r *conn) InjectRaw(ip []byte) (err error) {
+	_, err = r.raw.Send(ip, r.injectAddr)
+	return err
+}
+
+func (r *conn) InjectReservedIPHeader(b []byte, reserved int) (err error) {
 	i := r.ipstack.Size()
-	if delta := i - reserved; delta > 0 {
-		r.ipstack.AttachInbound(ip[delta:])
-		_, err = r.raw.Send(ip[delta:], r.injectAddr)
+	if delta := i - reserved; delta >= 0 {
+		r.ipstack.AttachInbound(b[delta:])
+		_, err = r.raw.Send(b[delta:], r.injectAddr)
 		return err
 	} else {
-		return r.Inject(ip[reserved:])
+		return r.Inject(b[reserved:])
 	}
 }
 
