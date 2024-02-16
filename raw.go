@@ -26,21 +26,22 @@ type RawConn interface {
 	// should set checksum that without pseudo checksum
 	Write(b []byte) (n int, err error)
 
+	// WriteReserved Write tcp/udp/icmp with prefix reserved n bytes
+	WriteReserved(b []byte, n int) (err error)
+
 	// WriteRaw write ip packet to remote address
 	WriteRaw(ip []byte) (err error)
 
-	// WriteReservedIPHeader Write tcp/udp/icmp with prefix reserved bytes
-	WriteReservedIPHeader(ip []byte, reserved int) (err error)
-
+	// todo: Inject 意义不明
 	// Inject inject tcp/udp/icmp packet to local address, tcp/udp packet
 	// should set checksum that without pseudo checksum
 	Inject(b []byte) (err error)
 
+	// InjectReserved Inject tcp/udp/icmp with prefix reserved bytes
+	InjectReserved(ip []byte, reserved int) (err error)
+
 	// InjectRaw inject ip packet to local address
 	InjectRaw(ip []byte) (err error)
-
-	// InjectReservedIPHeader Inject tcp/udp/icmp with prefix reserved bytes
-	InjectReservedIPHeader(ip []byte, reserved int) (err error)
 
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr

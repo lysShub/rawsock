@@ -384,14 +384,14 @@ func (r *connBPF) WriteRaw(ip []byte) (err error) {
 	return err
 }
 
-func (r *connBPF) WriteReservedIPHeader(ip []byte, reserved int) (err error) {
+func (r *connBPF) WriteReserved(b []byte, reserved int) (err error) {
 	i := r.ipstack.Size()
 	if delta := i - reserved; delta >= 0 {
-		r.ipstack.AttachOutbound(ip[delta:])
-		_, err = r.raw.Write(ip[delta:])
+		r.ipstack.AttachOutbound(b[delta:])
+		_, err = r.raw.Write(b[delta:])
 		return err
 	} else {
-		_, err = r.Write(ip[reserved:])
+		_, err = r.Write(b[reserved:])
 		return err
 	}
 }
@@ -411,7 +411,7 @@ func (r *connBPF) InjectRaw(ip []byte) (err error) {
 	return err
 }
 
-func (r *connBPF) InjectReservedIPHeader(b []byte, reserved int) (err error) {
+func (r *connBPF) InjectReserved(b []byte, reserved int) (err error) {
 	i := r.ipstack.Size()
 	if delta := i - reserved; delta > 0 {
 		r.ipstack.AttachInbound(b[delta:])

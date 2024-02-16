@@ -327,14 +327,14 @@ func (r *conn) WriteRaw(ip []byte) (err error) {
 	return err
 }
 
-func (r *conn) WriteReservedIPHeader(ip []byte, reserved int) (err error) {
+func (r *conn) WriteReserved(b []byte, reserved int) (err error) {
 	i := r.ipstack.Size()
 	if delta := i - reserved; delta >= 0 {
-		r.ipstack.AttachOutbound(ip[delta:])
-		_, err = r.raw.Send(ip[delta:], outboundAddr)
+		r.ipstack.AttachOutbound(b[delta:])
+		_, err = r.raw.Send(b[delta:], outboundAddr)
 		return err
 	} else {
-		_, err = r.Write(ip[reserved:])
+		_, err = r.Write(b[reserved:])
 		return err
 	}
 }
@@ -354,7 +354,7 @@ func (r *conn) InjectRaw(ip []byte) (err error) {
 	return err
 }
 
-func (r *conn) InjectReservedIPHeader(b []byte, reserved int) (err error) {
+func (r *conn) InjectReserved(b []byte, reserved int) (err error) {
 	i := r.ipstack.Size()
 	if delta := i - reserved; delta >= 0 {
 		r.ipstack.AttachInbound(b[delta:])
