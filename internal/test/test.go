@@ -246,7 +246,7 @@ func BindRaw(t require.TestingT, ctx context.Context, us *ustack, raw relraw.Raw
 			if ip.Len() == 0 {
 				fmt.Println(0)
 			}
-			sum(ip.Bytes()) // todo: TX
+			sum(ip.Data()) // todo: TX
 
 			// iphdr := header.IPv4(ip.Bytes())
 			// tcphdr := header.TCP(iphdr.Payload())
@@ -257,7 +257,7 @@ func BindRaw(t require.TestingT, ctx context.Context, us *ustack, raw relraw.Raw
 			// 	tcphdr.Flags(),
 			// )
 
-			us.Inject(ip.Bytes())
+			us.Inject(ip.Data())
 		}
 	}()
 

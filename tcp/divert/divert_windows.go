@@ -308,7 +308,7 @@ func (r *conn) Read(ip []byte) (n int, err error) {
 }
 
 func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
-	b := p.Bytes()
+	b := p.Data()
 	n, err := r.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	p.SetLen(n)
 	return err
@@ -322,7 +322,7 @@ func (r *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	r.ipstack.AttachInbound(p)
 
 	// todo: ctx
-	_, err = r.raw.Send(p.Bytes(), outboundAddr)
+	_, err = r.raw.Send(p.Data(), outboundAddr)
 	return err
 }
 
@@ -333,7 +333,7 @@ func (r *conn) Inject(ip []byte) (err error) {
 
 func (r *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	r.ipstack.AttachInbound(p)
-	_, err = r.raw.Send(p.Bytes(), r.injectAddr)
+	_, err = r.raw.Send(p.Data(), r.injectAddr)
 	return err
 }
 

@@ -128,12 +128,12 @@ func (i *IPStack) Size() int {
 
 func (i *IPStack) AttachInbound(p *Packet) {
 	p.Attach(i.in)
-	i.attachAndUpdateTransportChecksum(p.Bytes())
+	i.attachAndUpdateTransportChecksum(p.Data())
 }
 
 func (i *IPStack) AttachOutbound(p *Packet) {
 	p.Attach(i.out)
-	i.attachAndUpdateTransportChecksum(p.Bytes())
+	i.attachAndUpdateTransportChecksum(p.Data())
 }
 
 func (i *IPStack) attachAndUpdateTransportChecksum(ip []byte) {
