@@ -55,7 +55,7 @@ func Listen(locAddr netip.AddrPort, opts ...relraw.Opt) (*listener, error) {
 		)
 	}
 
-	if l.raw, err = divert.Open(filter, divert.LAYER_NETWORK, l.priority, divert.READ_ONLY); err != nil {
+	if l.raw, err = divert.Open(filter, divert.NETWORK, l.priority, divert.READ_ONLY); err != nil {
 		l.Close()
 		return nil, err
 	}
@@ -105,8 +105,9 @@ func (l *listener) Close() error {
 func (l *listener) Accept() (relraw.RawConn, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	var addr divert.Address
 	for {
-		n, addr, err := l.raw.Recv(l.b)
+		n, err := l.raw.Recv(l.b, &addr)
 		if err != nil {
 			return nil, err
 		} else if n == 0 {
@@ -239,7 +240,7 @@ func (r *conn) init(priority int16) (err error) {
 		)
 	}
 
-	if r.raw, err = divert.Open(filter, divert.LAYER_NETWORK, priority, 0); err != nil {
+	if r.raw, err = divert.Open(filter, divert.NETWORK, priority, 0); err != nil {
 		r.Close()
 		return err
 	}
@@ -247,9 +248,8 @@ func (r *conn) init(priority int16) (err error) {
 	r.ipstack = relraw.NewIPStack(
 		r.laddr.Addr(), r.raddr.Addr(),
 		header.TCPProtocolNumber,
-		relraw.ReservedIPheader, relraw.UpdateChecksum,
+		relraw.UpdateChecksum,
 	)
-
 	return nil
 }
 
@@ -280,7 +280,7 @@ func bindLocal(laddr netip.AddrPort, usedPort bool) (windows.Handle, netip.AddrP
 			Err: err,
 		}
 	} else if usedPort {
-		return windows.InvalidHandle, netip.AddrPort{}, config.ErrInvalidConfigUsedPort
+		return windows.InvalidHandle, netip.AddrPort{}, config.ErrNotUsedPort(laddr.Port())
 	}
 
 	if laddr.Port() == 0 {
@@ -303,66 +303,38 @@ func bindLocal(laddr netip.AddrPort, usedPort bool) (windows.Handle, netip.AddrP
 }
 
 func (r *conn) Read(ip []byte) (n int, err error) {
-	n, _, err = r.raw.Recv(ip)
+	n, err = r.raw.Recv(ip, nil)
 	return n, err
 }
 
-func (r *conn) ReadCtx(ctx context.Context, ip []byte) (n int, err error) {
-	n, err = r.raw.RecvCtx(ctx, ip, nil)
-	return n, err
-}
-
-func (r *conn) Write(b []byte) (n int, err error) {
-	i := r.ipstack.Size()
-	ip := make([]byte, i+len(b))
-	copy(ip[i:], b)
-	r.ipstack.AttachOutbound(ip)
-
-	n, err = r.raw.Send(ip, outboundAddr)
-	return max(n-i, 0), err
-}
-
-func (r *conn) WriteRaw(ip []byte) (err error) {
-	_, err = r.raw.Send(ip, outboundAddr)
+func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	b := p.Bytes()
+	n, err := r.raw.RecvCtx(ctx, b[:cap(b)], nil)
+	p.SetLen(n)
 	return err
 }
 
-func (r *conn) WriteReserved(b []byte, reserved int) (err error) {
-	i := r.ipstack.Size()
-	if delta := i - reserved; delta >= 0 {
-		r.ipstack.AttachOutbound(b[delta:])
-		_, err = r.raw.Send(b[delta:], outboundAddr)
-		return err
-	} else {
-		_, err = r.Write(b[reserved:])
-		return err
-	}
+func (r *conn) Write(ip []byte) (n int, err error) {
+	return r.raw.Send(ip, outboundAddr)
 }
 
-func (r *conn) Inject(b []byte) (err error) {
-	i := r.ipstack.Size()
-	ip := make([]byte, i+len(b))
-	copy(ip[i:], b)
-	r.ipstack.AttachInbound(ip)
+func (r *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	r.ipstack.AttachInbound(p)
 
+	// todo: ctx
+	_, err = r.raw.Send(p.Bytes(), outboundAddr)
+	return err
+}
+
+func (r *conn) Inject(ip []byte) (err error) {
 	_, err = r.raw.Send(ip, r.injectAddr)
 	return err
 }
 
-func (r *conn) InjectRaw(ip []byte) (err error) {
-	_, err = r.raw.Send(ip, r.injectAddr)
+func (r *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	r.ipstack.AttachInbound(p)
+	_, err = r.raw.Send(p.Bytes(), r.injectAddr)
 	return err
-}
-
-func (r *conn) InjectReserved(b []byte, reserved int) (err error) {
-	i := r.ipstack.Size()
-	if delta := i - reserved; delta >= 0 {
-		r.ipstack.AttachInbound(b[delta:])
-		_, err = r.raw.Send(b[delta:], r.injectAddr)
-		return err
-	} else {
-		return r.Inject(b[reserved:])
-	}
 }
 
 func (c *conn) Close() error {

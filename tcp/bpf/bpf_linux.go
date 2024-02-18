@@ -45,8 +45,7 @@ func Listen(laddr netip.AddrPort, opts ...relraw.Opt) (*listener, error) {
 	var err error
 	l.tcp, l.laddr, err = listenLocal(laddr, cfg.UsedPort)
 	if err != nil {
-		l.Close()
-		return nil, err
+		return nil, errors.Join(err, l.Close())
 	}
 
 	l.raw, err = net.ListenIP(
@@ -54,19 +53,24 @@ func Listen(laddr netip.AddrPort, opts ...relraw.Opt) (*listener, error) {
 		&net.IPAddr{IP: l.laddr.Addr().AsSlice(), Zone: laddr.Addr().Zone()},
 	)
 	if err != nil {
-		l.Close()
-		return nil, err
+		return nil, errors.Join(err, l.Close())
 	}
 
-	if err := l.setSynFilterBPF(); err != nil {
-		l.Close()
-		return nil, err
+	raw, err := l.raw.SyscallConn()
+	if err != nil {
+		return nil, errors.Join(err, l.Close())
+	}
+	e := raw.Control(func(fd uintptr) {
+		err = setTCPSynFilterBPF(int(fd), l.laddr.Port())
+	})
+	if err = errors.Join(e, err); err != nil {
+		return nil, errors.Join(err, l.Close())
 	}
 
 	return l, nil
 }
 
-func (l *listener) setSynFilterBPF() error {
+func setTCPSynFilterBPF(fd int, port uint16) error {
 	var ins = []bpf.Instruction{
 		// load ip version
 		bpf.LoadAbsolute{Off: 0, Size: 1},
@@ -84,7 +88,7 @@ func (l *listener) setSynFilterBPF() error {
 	ins = append(ins, []bpf.Instruction{
 		// destination port
 		bpf.LoadIndirect{Off: 2, Size: 2},
-		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(l.laddr.Port()), SkipTrue: 1},
+		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(port), SkipTrue: 1},
 		bpf.RetConstant{Val: 0},
 
 		// SYN flag
@@ -106,19 +110,7 @@ func (l *listener) setSynFilterBPF() error {
 		}
 	}
 
-	raw, err := l.raw.SyscallConn()
-	if err != nil {
-		return err
-	}
-	e := raw.Control(func(fd uintptr) {
-		err = unix.SetsockoptSockFprog(int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog)
-	})
-	if err != nil {
-		return err
-	} else if e != nil {
-		return e
-	}
-	return nil
+	return unix.SetsockoptSockFprog(int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog)
 }
 
 // todo: not support private proto that not start with tcp SYN flag
@@ -224,7 +216,7 @@ func (r *connBPF) init() (err error) {
 		return errors.Join(err, r.Close())
 	} else {
 		e := sc.Control(func(fd uintptr) {
-			// read with ip header
+			// read ip header
 			err = unix.SetsockoptByte(int(fd), unix.IPPROTO_IP, unix.IP_HDRINCL, 1)
 			if err != nil {
 				return
@@ -242,7 +234,7 @@ func (r *connBPF) init() (err error) {
 	r.ipstack = relraw.NewIPStack(
 		r.laddr.Addr(), r.raddr.Addr(),
 		header.TCPProtocolNumber,
-		relraw.ReservedIPheader, relraw.UpdateChecksum,
+		relraw.UpdateChecksum,
 	)
 
 	return nil
@@ -310,7 +302,7 @@ func listenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 		}
 		return nil, netip.AddrPort{}, err
 	} else if usedPort {
-		return nil, netip.AddrPort{}, config.ErrInvalidConfigUsedPort
+		return nil, netip.AddrPort{}, config.ErrNotUsedPort(laddr.Port())
 	}
 
 	raw, err := l.SyscallConn()
@@ -348,78 +340,51 @@ func (r *connBPF) Read(ip []byte) (n int, err error) {
 	return r.raw.Read(ip)
 }
 
-func (r *connBPF) ReadCtx(ctx context.Context, ip []byte) (n int, err error) {
+func (r *connBPF) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	b := p.Bytes()
+	b = b[:cap(b)]
 	for {
 		err = r.raw.SetReadDeadline(time.Now().Add(r.ctxCancelDelay))
 		if err != nil {
-			return 0, err
+			return err
 		}
 
-		n, err = r.raw.Read(ip)
+		n, err := r.raw.Read(b)
 		if err == nil {
-			return
+			p.SetLen(n)
+			return err
 		} else if errors.Is(err, os.ErrDeadlineExceeded) {
 			select {
 			case <-ctx.Done():
-				return 0, os.ErrDeadlineExceeded
+				return ctx.Err()
 			default:
 			}
 		} else {
-			return 0, err
+			return err
 		}
 	}
 }
 
-func (r *connBPF) Write(b []byte) (n int, err error) {
-	i := r.ipstack.Size()
-	ip := make([]byte, i+len(b))
-	copy(ip[i:], b)
-	r.ipstack.AttachOutbound(ip)
-
-	return r.raw.Write(b)
+func (r *connBPF) Write(ip []byte) (n int, err error) {
+	return r.raw.Write(ip)
 }
 
-func (r *connBPF) WriteRaw(ip []byte) (err error) {
+func (r *connBPF) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	r.ipstack.AttachOutbound(p)
+	_, err = r.raw.Write(p.Bytes())
+	return err
+}
+
+func (r *connBPF) Inject(ip []byte) (err error) {
 	_, err = r.raw.Write(ip)
 	return err
 }
 
-func (r *connBPF) WriteReserved(b []byte, reserved int) (err error) {
-	i := r.ipstack.Size()
-	if delta := i - reserved; delta >= 0 {
-		r.ipstack.AttachOutbound(b[delta:])
-		_, err = r.raw.Write(b[delta:])
-		return err
-	} else {
-		_, err = r.Write(b[reserved:])
-		return err
-	}
-}
+func (r *connBPF) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	r.ipstack.AttachInbound(p)
 
-func (r *connBPF) Inject(b []byte) (err error) {
-	i := r.ipstack.Size()
-	ip := make([]byte, i+len(b))
-	copy(ip[i:], b)
-	r.ipstack.AttachInbound(ip)
-
-	_, err = r.raw.Write(b)
+	_, err = r.raw.Write(p.Bytes())
 	return err
-}
-
-func (r *connBPF) InjectRaw(ip []byte) (err error) {
-	_, err = r.raw.Write(ip)
-	return err
-}
-
-func (r *connBPF) InjectReserved(b []byte, reserved int) (err error) {
-	i := r.ipstack.Size()
-	if delta := i - reserved; delta > 0 {
-		r.ipstack.AttachInbound(b[delta:])
-		_, err = r.raw.Write(b[delta:])
-		return err
-	} else {
-		return r.Inject(b[reserved:])
-	}
 }
 
 func (r *connBPF) Close() error {

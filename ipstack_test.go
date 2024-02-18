@@ -30,7 +30,7 @@ func Test_IP_Stack(t *testing.T) {
 			s := NewIPStack(
 				suit.src, suit.dst,
 				header.TCPProtocolNumber,
-				ReservedIPheader, UpdateChecksum,
+				UpdateChecksum,
 			)
 
 			var tcp = func() header.TCP {
@@ -52,7 +52,7 @@ func Test_IP_Stack(t *testing.T) {
 			ip := make([]byte, s.Size()+len(tcp))
 			copy(ip[s.Size():], tcp)
 
-			s.AttachOutbound(ip)
+			s.AttachOutbound(ToPacket(s.Size(), ip))
 
 			var network header.Network
 			if suit.src.Is4() {

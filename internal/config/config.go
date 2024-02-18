@@ -1,7 +1,7 @@
 package config
 
 import (
-	"errors"
+	"fmt"
 	"time"
 )
 
@@ -21,4 +21,8 @@ var Default = Config{
 	DivertPriorty: 0,
 }
 
-var ErrInvalidConfigUsedPort = errors.New("wrong config UsedPor")
+type ErrNotUsedPort int
+
+func (e ErrNotUsedPort) Error() string {
+	return fmt.Sprintf("port %d not bind", int(e))
+}

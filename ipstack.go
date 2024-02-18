@@ -9,6 +9,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
+// build ip header
 type IPStack struct {
 	option    options
 	network   tcpip.NetworkProtocolNumber
@@ -22,22 +23,20 @@ type IPStack struct {
 }
 
 type options struct {
-	checksum         uint8
-	calcIPChecksum   bool
-	reservedIPheader bool
+	checksum       uint8
+	calcIPChecksum bool
 }
 
 var defaultOption = options{
-	checksum:         recalcChecksum,
-	calcIPChecksum:   true,
-	reservedIPheader: false,
+	checksum:       reCalcChecksum,
+	calcIPChecksum: true,
 }
 
 const (
 	_ = iota
 	updateChecksumWithoutPseudo
-	recalcChecksum
-	notSetChecksum
+	reCalcChecksum
+	notCalcChecksum
 )
 
 // UpdateChecksum update transport layer checksum, the checksum without pseudo-checksum
@@ -47,22 +46,17 @@ func UpdateChecksum(o *options) {
 
 // RecalcChecksum re-calculate transport layer checksum
 func RecalcChecksum(o *options) {
-	o.checksum = recalcChecksum
+	o.checksum = reCalcChecksum
 }
 
 // NotsetChecksum not set transport layer checksum, the value is 0
 func NotsetChecksum(o *options) {
-	o.checksum = notSetChecksum
+	o.checksum = notCalcChecksum
 }
 
 // NotsetIPChecksum not set ip4 checksum
 func NotsetIPChecksum(o *options) {
 	o.calcIPChecksum = false
-}
-
-// ReservedIPheader previous reserve ip[:AttachSize()] for ip header
-func ReservedIPheader(o *options) {
-	o.reservedIPheader = true
 }
 
 func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, opts ...func(*options)) *IPStack {
@@ -132,30 +126,14 @@ func (i *IPStack) Size() int {
 	}
 }
 
-func (i *IPStack) AttachInbound(b []byte) (ip []byte) {
-	if !i.option.reservedIPheader {
-		size := i.Size()
-		tmp := make([]byte, len(b)+size, cap(b)+size)
-		copy(tmp[size:], b)
-		b = tmp
-	}
-
-	copy(b, i.in)
-	i.attachAndUpdateTransportChecksum(b)
-	return b
+func (i *IPStack) AttachInbound(p *Packet) {
+	p.Attach(i.in)
+	i.attachAndUpdateTransportChecksum(p.Bytes())
 }
 
-func (i *IPStack) AttachOutbound(b []byte) (ip []byte) {
-	if !i.option.reservedIPheader {
-		size := i.Size()
-		tmp := make([]byte, len(b)+size, cap(b)+size)
-		copy(tmp[size:], b)
-		b = tmp
-	}
-
-	copy(b, i.out)
-	i.attachAndUpdateTransportChecksum(b)
-	return b
+func (i *IPStack) AttachOutbound(p *Packet) {
+	p.Attach(i.out)
+	i.attachAndUpdateTransportChecksum(p.Bytes())
 }
 
 func (i *IPStack) attachAndUpdateTransportChecksum(ip []byte) {
@@ -168,9 +146,9 @@ func (i *IPStack) attachAndUpdateTransportChecksum(ip []byte) {
 		switch i.option.checksum {
 		case updateChecksumWithoutPseudo:
 			sum = ^tcphdr.Checksum()
-		case recalcChecksum:
+		case reCalcChecksum:
 			sum = checksum.Checksum(tcphdr, 0)
-		case notSetChecksum:
+		case notCalcChecksum:
 			sum = 0xffff
 		default:
 			panic("")
@@ -182,9 +160,9 @@ func (i *IPStack) attachAndUpdateTransportChecksum(ip []byte) {
 		switch i.option.checksum {
 		case updateChecksumWithoutPseudo:
 			sum = ^udphdr.Checksum()
-		case recalcChecksum:
+		case reCalcChecksum:
 			sum = checksum.Checksum(udphdr, 0)
-		case notSetChecksum:
+		case notCalcChecksum:
 			sum = 0xffff
 		default:
 			panic("")
@@ -204,9 +182,9 @@ func (i *IPStack) attach(ip []byte) (uint16, []byte) {
 
 		var psosum uint16
 		switch i.option.checksum {
-		case recalcChecksum, updateChecksumWithoutPseudo:
+		case reCalcChecksum, updateChecksumWithoutPseudo:
 			psosum = checksum.Combine(i.psoSum1, uint16(len(iphdr.Payload())))
-		case notSetChecksum:
+		case notCalcChecksum:
 		default:
 			panic("")
 		}
@@ -218,9 +196,9 @@ func (i *IPStack) attach(ip []byte) (uint16, []byte) {
 
 		var psosum uint16
 		switch i.option.checksum {
-		case recalcChecksum, updateChecksumWithoutPseudo:
+		case reCalcChecksum, updateChecksumWithoutPseudo:
 			psosum = checksum.Combine(i.psoSum1, n)
-		case notSetChecksum:
+		case notCalcChecksum:
 		default:
 			panic("")
 		}
