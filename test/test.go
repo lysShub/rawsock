@@ -200,14 +200,14 @@ type ustack struct {
 	link *channel.Endpoint
 }
 
-func NewUstack(t require.TestingT, addr netip.Addr) *ustack {
+func NewUstack(t require.TestingT, addr netip.Addr, handleLocal bool) *ustack {
 	require.True(t, addr.Is4())
 
 	laddr := tcpip.AddrFromSlice(addr.AsSlice())
 	st := stack.New(stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol},
-		// HandleLocal:        true,
+		HandleLocal:        handleLocal,
 	})
 	l := channel.New(4, 1536, "")
 

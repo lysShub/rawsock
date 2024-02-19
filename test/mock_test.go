@@ -82,7 +82,7 @@ func Test_Mock_RawConn(t *testing.T) {
 
 		// server
 		go func() {
-			us := NewUstack(t, saddr.Addr())
+			us := NewUstack(t, saddr.Addr(), false)
 			BindRawToUstack(t, ctx, us, rawServer)
 
 			l, err := gonet.ListenTCP(
@@ -103,7 +103,7 @@ func Test_Mock_RawConn(t *testing.T) {
 
 		// client
 		{
-			us := NewUstack(t, caddr.Addr())
+			us := NewUstack(t, caddr.Addr(), false)
 			BindRawToUstack(t, ctx, us, rawClient)
 
 			conn, err := gonet.DialTCPWithBind(

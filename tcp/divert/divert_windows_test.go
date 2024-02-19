@@ -83,7 +83,7 @@ func Test_Connect(t *testing.T) {
 
 		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
-		us := test.NewUstack(t, caddr.Addr())
+		us := test.NewUstack(t, caddr.Addr(), false)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
