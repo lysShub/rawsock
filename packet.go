@@ -103,16 +103,33 @@ func (p *Packet) Sets(head, n int) {
 	p.b = p.b[:head+n]
 }
 
+func (p *Packet) AllocHead(head int) bool {
+	delta := head - p.Head()
+	if delta > 0 {
+		if head < defaulfHead {
+			head = defaulfHead
+			delta = head - p.Head()
+		}
+		tmp := make([]byte, len(p.b)+delta, cap(p.b)+delta)
+		copy(tmp[head:], p.b[p.i:])
+
+		p.b = tmp
+		p.i = head
+		return true
+	}
+	return false
+}
+
 func (p *Packet) AllocTail(tail int) bool {
-	delta := p.Tail() - tail
-	if delta < 0 {
+	delta := tail - p.Tail()
+	if delta > 0 {
 		if tail < defaulfTail {
 			tail = defaulfTail
 		}
 		tmp := make([]byte, len(p.b), len(p.b)+tail)
 		copy(tmp, p.b)
-		p.b = tmp
 
+		p.b = tmp
 		return true
 	} else {
 		return false

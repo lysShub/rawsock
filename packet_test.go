@@ -164,23 +164,74 @@ func Test_Packet_AllocTail(t *testing.T) {
 
 	t.Run("AllocTail", func(t *testing.T) {
 		p := NewPacket(2, 2, 2)
+		p.Data()[0] = 9
+
 		alloc := p.AllocTail(1)
 		require.False(t, alloc)
 
 		require.Equal(t, 2, p.Head())
 		require.Equal(t, 2, p.Len())
 		require.Equal(t, 2, len(p.Data()))
+		require.Equal(t, byte(9), p.Data()[0])
 		require.Equal(t, 2, p.Tail())
 	})
 
 	t.Run("AllocTail2", func(t *testing.T) {
 		p := NewPacket(2, 2, 2)
+		p.Data()[0] = 9
+
 		alloc := p.AllocTail(3)
 		require.True(t, alloc)
 
 		require.Equal(t, 2, p.Head())
 		require.Equal(t, 2, p.Len())
 		require.Equal(t, 2, len(p.Data()))
+		require.Equal(t, byte(9), p.Data()[0])
 		require.Equal(t, defaulfTail, p.Tail())
+	})
+}
+
+func Test_Packet_AllocHead(t *testing.T) {
+
+	t.Run("AllocHead", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+		p.Data()[0] = 9
+
+		alloc := p.AllocHead(1)
+		require.False(t, alloc)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 2, p.Len())
+		require.Equal(t, 2, len(p.Data()))
+		require.Equal(t, byte(9), p.Data()[0])
+		require.Equal(t, 2, p.Tail())
+	})
+
+	t.Run("AllocHead2", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+		p.Data()[0] = 9
+
+		alloc := p.AllocHead(3)
+		require.True(t, alloc)
+
+		require.Equal(t, defaulfHead, p.Head())
+		require.Equal(t, 2, p.Len())
+		require.Equal(t, 2, len(p.Data()))
+		require.Equal(t, byte(9), p.Data()[0])
+		require.Equal(t, 2, p.Tail())
+	})
+
+	t.Run("AllocHead3", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+		p.Data()[0] = 9
+
+		alloc := p.AllocHead(defaulfHead + 1)
+		require.True(t, alloc)
+
+		require.Equal(t, defaulfHead+1, p.Head())
+		require.Equal(t, 2, p.Len())
+		require.Equal(t, 2, len(p.Data()))
+		require.Equal(t, byte(9), p.Data()[0])
+		require.Equal(t, 2, p.Tail())
 	})
 }
