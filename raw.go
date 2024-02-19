@@ -19,21 +19,21 @@ type RawConn interface {
 	// Read read ip packet from remote address
 	Read(ip []byte) (n int, err error)
 
-	// ReadCtx read ip packet from remote address
+	// ReadCtx read tcp/udp/icmp packet from remote address
 	ReadCtx(ctx context.Context, p *Packet) (err error)
 
-	// Write write tcp/udp/icmp packet to remote address, tcp/udp packet
-	// should set checksum that without pseudo checksum
+	// Write write ip packet to remote
 	Write(ip []byte) (n int, err error)
 
-	// WriteReserved Write tcp/udp/icmp with prefix reserved n bytes
+	// WriteCtx write tcp/udp/icmp packet to remote address, tcp/udp packet
+	// should set checksum that without pseudo checksum
 	WriteCtx(ctx context.Context, p *Packet) (err error)
 
-	// Inject inject tcp/udp/icmp packet to local address, tcp/udp packet
-	// should set checksum that without pseudo checksum
+	// Inject inject ip packet to local address
 	Inject(ip []byte) (err error)
 
-	// InjectReserved Inject tcp/udp/icmp with prefix reserved bytes
+	// InjectCtx inject tcp/udp/icmp packet to local address, tcp/udp packet
+	// should set checksum that without pseudo checksum
 	InjectCtx(ctx context.Context, p *Packet) (err error)
 
 	LocalAddr() net.Addr

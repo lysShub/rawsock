@@ -3,7 +3,6 @@ package test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -230,8 +229,9 @@ func NewUstack(t require.TestingT, addr netip.Addr) *ustack {
 }
 
 func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw relraw.RawConn) {
+	var mtu = 1536
 	go func() {
-		var ip = relraw.ToPacket(0, make([]byte, 1536))
+		var ip = relraw.ToPacket(0, make([]byte, mtu))
 		sum := calcChecksum()
 		for {
 			select {
@@ -239,14 +239,16 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw re
 				return
 			default:
 			}
+
+			ip.Sets(0, mtu)
 			err := raw.ReadCtx(ctx, ip)
 			if errors.Is(err, context.Canceled) {
 				return
 			}
 			require.NoError(t, err)
-			if ip.Len() == 0 {
-				fmt.Println(0)
-			}
+
+			// recover tcp to ip packet
+			ip.SetHead(0)
 			sum(ip.Data()) // todo: TX
 
 			// iphdr := header.IPv4(ip.Bytes())

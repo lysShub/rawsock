@@ -310,8 +310,18 @@ func (r *conn) Read(ip []byte) (n int, err error) {
 func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	b := p.Data()
 	n, err := r.raw.RecvCtx(ctx, b[:cap(b)], nil)
+	if err != nil {
+		return err
+	}
+
 	p.SetLen(n)
-	return err
+	switch header.IPVersion(b) {
+	case 4:
+		p.SetHead(int(header.IPv4(b).HeaderLength()))
+	case 6:
+		p.SetHead(header.IPv6MinimumSize)
+	}
+	return nil
 }
 
 func (r *conn) Write(ip []byte) (n int, err error) {

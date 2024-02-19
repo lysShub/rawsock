@@ -342,16 +342,17 @@ func (r *connBPF) Read(ip []byte) (n int, err error) {
 func (r *connBPF) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	b := p.Data()
 	b = b[:cap(b)]
+
+	var n int
 	for {
 		err = r.raw.SetReadDeadline(time.Now().Add(r.ctxCancelDelay))
 		if err != nil {
 			return err
 		}
 
-		n, err := r.raw.Read(b)
+		n, err = r.raw.Read(b)
 		if err == nil {
-			p.SetLen(n)
-			return err
+			break
 		} else if errors.Is(err, os.ErrDeadlineExceeded) {
 			select {
 			case <-ctx.Done():
@@ -362,6 +363,15 @@ func (r *connBPF) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 			return err
 		}
 	}
+
+	p.SetLen(n)
+	switch header.IPVersion(b) {
+	case 4:
+		p.SetHead(int(header.IPv4(b).HeaderLength()))
+	case 6:
+		p.SetHead(header.IPv6MinimumSize)
+	}
+	return nil
 }
 
 func (r *connBPF) Write(ip []byte) (n int, err error) {

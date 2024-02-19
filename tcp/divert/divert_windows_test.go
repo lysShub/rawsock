@@ -64,8 +64,8 @@ func Test_Connect(t *testing.T) {
 
 	t.Run("connect/loopback", func(t *testing.T) {
 		var (
-			saddr = netip.AddrPortFrom(test.LocIP /* 8080*/, test.RandPort())
-			caddr = netip.AddrPortFrom(test.LocIP /* 19986*/, test.RandPort())
+			saddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+			caddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
 		)
 
 		go func() {
