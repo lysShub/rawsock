@@ -11,7 +11,7 @@ import (
 
 	"github.com/lysShub/divert-go"
 	"github.com/lysShub/relraw/internal/config"
-	"github.com/lysShub/relraw/internal/test"
+	"github.com/lysShub/relraw/test"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -87,7 +87,7 @@ func Test_Connect(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		test.BindRaw(t, ctx, us, raw)
+		test.BindRawToUstack(t, ctx, us, raw)
 
 		conn, err := gonet.DialTCPWithBind(
 			ctx, us.Stack(),

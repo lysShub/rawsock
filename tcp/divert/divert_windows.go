@@ -245,12 +245,12 @@ func (r *conn) init(priority int16) (err error) {
 		return err
 	}
 
-	r.ipstack = relraw.NewIPStack(
+	r.ipstack, err = relraw.NewIPStack(
 		r.laddr.Addr(), r.raddr.Addr(),
 		header.TCPProtocolNumber,
 		relraw.UpdateChecksum,
 	)
-	return nil
+	return err
 }
 
 func bindLocal(laddr netip.AddrPort, usedPort bool) (windows.Handle, netip.AddrPort, error) {

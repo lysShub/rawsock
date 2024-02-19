@@ -27,11 +27,12 @@ func Test_IP_Stack(t *testing.T) {
 		}
 
 		for _, suit := range suits {
-			s := NewIPStack(
+			s, err := NewIPStack(
 				suit.src, suit.dst,
 				header.TCPProtocolNumber,
 				UpdateChecksum,
 			)
+			require.NoError(t, err)
 
 			var tcp = func() header.TCP {
 				var b = header.TCP(make([]byte, 64))

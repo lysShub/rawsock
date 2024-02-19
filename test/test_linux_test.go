@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lysShub/relraw/internal/test"
+	"github.com/lysShub/relraw/test"
 	"github.com/stretchr/testify/require"
 )
 

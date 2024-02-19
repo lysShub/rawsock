@@ -231,13 +231,12 @@ func (r *connBPF) init() (err error) {
 		}
 	}
 
-	r.ipstack = relraw.NewIPStack(
+	r.ipstack, err = relraw.NewIPStack(
 		r.laddr.Addr(), r.raddr.Addr(),
 		header.TCPProtocolNumber,
 		relraw.UpdateChecksum,
 	)
-
-	return nil
+	return err
 }
 
 // setPortsFilterBPF BPF filter by localPort and remotePort
@@ -341,7 +340,7 @@ func (r *connBPF) Read(ip []byte) (n int, err error) {
 }
 
 func (r *connBPF) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
-	b := p.Bytes()
+	b := p.Data()
 	b = b[:cap(b)]
 	for {
 		err = r.raw.SetReadDeadline(time.Now().Add(r.ctxCancelDelay))
@@ -371,7 +370,7 @@ func (r *connBPF) Write(ip []byte) (n int, err error) {
 
 func (r *connBPF) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	r.ipstack.AttachOutbound(p)
-	_, err = r.raw.Write(p.Bytes())
+	_, err = r.raw.Write(p.Data())
 	return err
 }
 
@@ -383,7 +382,7 @@ func (r *connBPF) Inject(ip []byte) (err error) {
 func (r *connBPF) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	r.ipstack.AttachInbound(p)
 
-	_, err = r.raw.Write(p.Bytes())
+	_, err = r.raw.Write(p.Data())
 	return err
 }
 

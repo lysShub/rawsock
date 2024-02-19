@@ -11,7 +11,7 @@ import (
 
 	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/internal/config"
-	"github.com/lysShub/relraw/internal/test"
+	"github.com/lysShub/relraw/test"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -176,7 +176,7 @@ func Test_Connect(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		test.BindRaw(t, ctx, us, raw)
+		test.BindRawToUstack(t, ctx, us, raw)
 
 		conn, err := gonet.DialTCPWithBind(
 			ctx, us.Stack(),

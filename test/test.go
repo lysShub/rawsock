@@ -120,7 +120,8 @@ func BuildRawTCP(t *testing.T, laddr, raddr netip.AddrPort, payload []byte) head
 		Checksum:   0,
 	})
 
-	s := relraw.NewIPStack(laddr.Addr(), raddr.Addr(), header.TCPProtocolNumber)
+	s, err := relraw.NewIPStack(laddr.Addr(), raddr.Addr(), header.TCPProtocolNumber)
+	require.NoError(t, err)
 	p := relraw.ToPacket(s.Size(), b)
 	s.AttachOutbound(p)
 
@@ -228,7 +229,7 @@ func NewUstack(t require.TestingT, addr netip.Addr) *ustack {
 	return u
 }
 
-func BindRaw(t require.TestingT, ctx context.Context, us *ustack, raw relraw.RawConn) {
+func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw relraw.RawConn) {
 	go func() {
 		var ip = relraw.ToPacket(0, make([]byte, 1536))
 		sum := calcChecksum()

@@ -1,6 +1,7 @@
 package relraw
 
 import (
+	"fmt"
 	"math/rand"
 	"net/netip"
 
@@ -59,10 +60,16 @@ func NotsetIPChecksum(o *options) {
 	o.calcIPChecksum = false
 }
 
-func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, opts ...func(*options)) *IPStack {
+func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, opts ...func(*options)) (*IPStack, error) {
 	var option = defaultOption
 	for _, opt := range opts {
 		opt(&option)
+	}
+
+	switch proto {
+	case header.TCPProtocolNumber, header.UDPProtocolNumber:
+	default:
+		return nil, fmt.Errorf("not support transport protocol number %d", proto)
 	}
 
 	var s = &IPStack{
@@ -79,7 +86,7 @@ func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, op
 		s.in, s.psoSum1 = initHdr6(raddr, laddr, proto)
 		s.out, s.psoSum1 = initHdr6(laddr, raddr, proto)
 	}
-	return s
+	return s, nil
 }
 
 func initHdr(src, dst netip.Addr, proto tcpip.TransportProtocolNumber) ([]byte, uint16) {
