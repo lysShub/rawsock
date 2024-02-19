@@ -2,11 +2,14 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math"
 	"math/rand"
 	"net"
 	"net/netip"
+	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/lysShub/relraw"
@@ -24,8 +27,9 @@ type MockRaw struct {
 	local, remote netip.AddrPort
 	ip            *relraw.IPStack
 
-	out chan header.IPv4
-	in  chan header.IPv4
+	out    chan<- header.IPv4
+	in     chan header.IPv4
+	closed atomic.Bool
 }
 
 func NewMockRaw(
@@ -38,23 +42,26 @@ func NewMockRaw(
 
 	var a = make(chan header.IPv4, 16)
 	var b = make(chan header.IPv4, 16)
+	var err error
 
 	client = &MockRaw{
 		options: defaultOptions,
+		t:       t,
 		local:   clientAddr,
 		remote:  serverAddr,
 		proto:   proto,
 		out:     a,
 		in:      b,
 	}
-	var err error
 	client.ip, err = relraw.NewIPStack(client.local.Addr(), client.remote.Addr(), proto)
 	require.NoError(t, err)
 
 	server = &MockRaw{
 		options: defaultOptions,
+		t:       t,
 		local:   serverAddr,
 		remote:  clientAddr,
+		proto:   proto,
 		out:     b,
 		in:      a,
 	}
@@ -71,10 +78,17 @@ func NewMockRaw(
 var _ relraw.RawConn = (*MockRaw)(nil)
 
 func (r *MockRaw) Close() error {
+	if r.closed.CompareAndSwap(false, true) {
+		close(r.out)
+	}
 	return nil
 }
+
 func (r *MockRaw) Read(ip []byte) (n int, err error) {
-	b := <-r.in
+	b, ok := <-r.in
+	if !ok {
+		return 0, io.EOF
+	}
 	r.valid(b, true)
 
 	n = copy(ip, b)
@@ -85,10 +99,14 @@ func (r *MockRaw) Read(ip []byte) (n int, err error) {
 }
 func (r *MockRaw) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	var ip header.IPv4
+	ok := false
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case ip = <-r.in:
+	case ip, ok = <-r.in:
+		if !ok {
+			return io.EOF
+		}
 	}
 	r.valid(ip, true)
 
@@ -100,24 +118,37 @@ func (r *MockRaw) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	}
 	p.SetLen(n)
 
+	fmt.Println("read")
+
+	p.SetHead(int(ip.HeaderLength()))
 	return nil
 }
 func (r *MockRaw) Write(ip []byte) (n int, err error) {
+	if r.closed.Load() {
+		return 0, os.ErrClosed
+	}
+
 	r.valid(ip, false)
 	if r.loss() {
 		return len(ip), nil
 	}
 
 	r.out <- ip
+
+	fmt.Println("write")
+
 	return len(ip), nil
 }
 func (r *MockRaw) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
-	r.ip.AttachOutbound(p)
+	if r.closed.Load() {
+		return os.ErrClosed
+	}
 
+	r.ip.AttachOutbound(p)
+	r.valid(p.Data(), false)
 	if r.loss() {
 		return nil
 	}
-	r.valid(p.Data(), false)
 
 	select {
 	case <-ctx.Done():
@@ -129,6 +160,11 @@ func (r *MockRaw) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 func (r *MockRaw) Inject(ip []byte) (err error) {
 	r.valid(ip, true)
 
+	defer func() {
+		if recover() != nil {
+			err = os.ErrClosed
+		}
+	}()
 	r.in <- ip
 	return nil
 }
@@ -138,6 +174,12 @@ func (r *MockRaw) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
 
 	var tmp = make([]byte, p.Len())
 	copy(tmp, p.Data())
+
+	defer func() {
+		if recover() != nil {
+			err = os.ErrClosed
+		}
+	}()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -181,31 +223,23 @@ func (r *MockRaw) validChecksum(ip header.IPv4) {
 	sum1 := checksum.Checksum(ip.Payload(), 0)
 
 	var sum uint16
-	var tp header.Transport
 	switch ip.TransportProtocol() {
-	case header.TCPProtocolNumber:
-		tp = header.TCP(ip.Payload())
+	case header.TCPProtocolNumber, header.UDPProtocolNumber:
 		sum = checksum.Combine(psoSum, sum1)
-	case header.UDPProtocolNumber:
-		tp = header.UDP(ip.Payload())
-		sum = checksum.Combine(psoSum, sum1)
-	case header.ICMPv4ProtocolNumber:
-		tp = header.ICMPv4(ip.Payload())
-		sum = sum1
-	case header.ICMPv6ProtocolNumber:
-		tp = header.ICMPv6(ip.Payload())
+	case header.ICMPv4ProtocolNumber, header.ICMPv6ProtocolNumber:
 		sum = sum1
 	default:
 		panic("")
 	}
 
-	require.Equal(r.t, sum, tp.Checksum())
+	require.Equal(r.t, uint16(0xffff), sum)
 }
 
 func (r *MockRaw) validAddr(ip header.IPv4, inbound bool) {
 	if !r.options.validAddr {
 		return
 	}
+	require.Equal(r.t, r.proto, ip.TransportProtocol())
 
 	var tp header.Transport
 	switch ip.TransportProtocol() {
@@ -229,7 +263,6 @@ func (r *MockRaw) validAddr(ip header.IPv4, inbound bool) {
 		netip.AddrFrom4(ip.DestinationAddress().As4()),
 		tp.DestinationPort(),
 	)
-
 	if inbound {
 		require.Equal(r.t, r.remote, src)
 		require.Equal(r.t, r.local, dst)
