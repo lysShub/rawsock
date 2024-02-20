@@ -51,27 +51,27 @@ func Test_Packet_SetHead(t *testing.T) {
 		p.SetHead(3)
 
 		require.Equal(t, 3, p.Head())
-		require.Equal(t, 2, p.Len())
-		require.Equal(t, 2, len(p.Data()))
-		require.Equal(t, 1, p.Tail())
+		require.Equal(t, 1, p.Len())
+		require.Equal(t, 1, len(p.Data()))
+		require.Equal(t, 2, p.Tail())
 	})
 	t.Run("SetHead2", func(t *testing.T) {
 		p := NewPacket(2, 2, 2)
 		p.SetHead(4)
 
 		require.Equal(t, 4, p.Head())
-		require.Equal(t, 2, p.Len())
-		require.Equal(t, 2, len(p.Data()))
-		require.Equal(t, 0, p.Tail())
+		require.Equal(t, 0, p.Len())
+		require.Equal(t, 0, len(p.Data()))
+		require.Equal(t, 2, p.Tail())
 	})
 	t.Run("SetHead3", func(t *testing.T) {
 		p := NewPacket(2, 2, 2)
-		p.SetHead(6)
+		p.SetHead(0)
 
-		require.Equal(t, 6, p.Head())
-		require.Equal(t, 0, p.Len())
-		require.Equal(t, 0, len(p.Data()))
-		require.Equal(t, 0, p.Tail())
+		require.Equal(t, 0, p.Head())
+		require.Equal(t, 4, p.Len())
+		require.Equal(t, 4, len(p.Data()))
+		require.Equal(t, 2, p.Tail())
 	})
 	t.Run("SetHead4", func(t *testing.T) {
 		p := NewPacket(2, 2, 2)
@@ -79,7 +79,25 @@ func Test_Packet_SetHead(t *testing.T) {
 		defer func() {
 			require.NotNil(t, recover())
 		}()
+
+		p.SetHead(6)
+	})
+	t.Run("SetHead5", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+
+		defer func() {
+			require.NotNil(t, recover())
+		}()
 		p.SetHead(7)
+	})
+
+	t.Run("SetHead6", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+
+		defer func() {
+			require.NotNil(t, recover())
+		}()
+		p.SetHead(-1)
 	})
 }
 
@@ -105,42 +123,12 @@ func Test_Packet_SetData(t *testing.T) {
 	})
 	t.Run("SetLen3", func(t *testing.T) {
 		p := NewPacket(2, 2, 2)
-
-		defer func() {
-			require.NotNil(t, recover())
-		}()
-		p.SetLen(5)
-	})
-}
-
-func Test_Packet_Sets(t *testing.T) {
-	t.Run("SetLen", func(t *testing.T) {
-
-		p := NewPacket(2, 2, 2)
-		p.Sets(2, 4)
+		p.SetLen(0)
 
 		require.Equal(t, 2, p.Head())
-		require.Equal(t, 4, p.Len())
-		require.Equal(t, 4, len(p.Data()))
-		require.Equal(t, 0, p.Tail())
-	})
-	t.Run("SetLen2", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		p.Sets(6, 0)
-
-		require.Equal(t, 6, p.Head())
 		require.Equal(t, 0, p.Len())
 		require.Equal(t, 0, len(p.Data()))
-		require.Equal(t, 0, p.Tail())
-	})
-	t.Run("SetLen3", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		p.Sets(0, 6)
-
-		require.Equal(t, 0, p.Head())
-		require.Equal(t, 6, p.Len())
-		require.Equal(t, 6, len(p.Data()))
-		require.Equal(t, 0, p.Tail())
+		require.Equal(t, 4, p.Tail())
 	})
 	t.Run("SetLen4", func(t *testing.T) {
 		p := NewPacket(2, 2, 2)
@@ -148,15 +136,122 @@ func Test_Packet_Sets(t *testing.T) {
 		defer func() {
 			require.NotNil(t, recover())
 		}()
-		p.Sets(3, 4)
+		p.SetLen(5)
 	})
+
 	t.Run("SetLen5", func(t *testing.T) {
 		p := NewPacket(2, 2, 2)
 
 		defer func() {
 			require.NotNil(t, recover())
 		}()
-		p.Sets(7, 0)
+		p.SetLen(-1)
+	})
+}
+
+func Test_Packet_Sets(t *testing.T) {
+	t.Run("SetLen", func(t *testing.T) {
+
+		p := NewPacket(2, 2, 2)
+		{
+			p.Sets(2, 4)
+
+			require.Equal(t, 2, p.Head())
+			require.Equal(t, 4, p.Len())
+			require.Equal(t, 4, len(p.Data()))
+			require.Equal(t, 0, p.Tail())
+		}
+
+		p1 := NewPacket(2, 2, 2)
+		p1.SetHead(2)
+		p1.SetLen(4)
+
+		require.Equal(t, p, p1)
+	})
+
+	t.Run("SetLen2", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+		{
+			p.Sets(4, 0)
+
+			require.Equal(t, 4, p.Head())
+			require.Equal(t, 0, p.Len())
+			require.Equal(t, 0, len(p.Data()))
+			require.Equal(t, 2, p.Tail())
+		}
+
+		p1 := NewPacket(2, 2, 2)
+		p1.SetHead(4)
+		p1.SetLen(0)
+
+		require.Equal(t, p, p1)
+	})
+
+	t.Run("SetLen3", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+		p.Sets(0, 4)
+		{
+			require.Equal(t, 0, p.Head())
+			require.Equal(t, 4, p.Len())
+			require.Equal(t, 4, len(p.Data()))
+			require.Equal(t, 2, p.Tail())
+		}
+
+		p1 := NewPacket(2, 2, 2)
+		p1.SetHead(0)
+		p1.SetLen(4)
+
+		require.Equal(t, p, p1)
+	})
+
+	t.Run("SetLen4", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+		p.Sets(0, 6)
+		{
+			require.Equal(t, 0, p.Head())
+			require.Equal(t, 6, p.Len())
+			require.Equal(t, 6, len(p.Data()))
+			require.Equal(t, 0, p.Tail())
+		}
+
+		p1 := NewPacket(2, 2, 2)
+		p1.SetHead(0)
+		p1.SetLen(6)
+
+		require.Equal(t, p, p1)
+	})
+
+	t.Run("SetLen5", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+
+		defer func() {
+			require.NotNil(t, recover())
+		}()
+		p.Sets(-1, 0)
+	})
+	t.Run("SetLen6", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+
+		defer func() {
+			require.NotNil(t, recover())
+		}()
+		p.Sets(0, -1)
+	})
+	t.Run("SetLen7", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+
+		defer func() {
+			require.NotNil(t, recover())
+		}()
+		p.Sets(5, 0)
+	})
+	t.Run("SetLen8", func(t *testing.T) {
+		p := NewPacket(2, 2, 2)
+
+		defer func() {
+			require.NotNil(t, recover())
+		}()
+		p.Sets(0, 7)
 	})
 }
 

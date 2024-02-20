@@ -340,6 +340,7 @@ func (r *connBPF) Read(ip []byte) (n int, err error) {
 }
 
 func (r *connBPF) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	p.SetHead(0)
 	b := p.Data()
 	b = b[:cap(b)]
 

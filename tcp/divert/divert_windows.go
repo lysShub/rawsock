@@ -308,6 +308,7 @@ func (r *conn) Read(ip []byte) (n int, err error) {
 }
 
 func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	p.SetHead(0)
 	b := p.Data()
 	n, err := r.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	if err != nil {

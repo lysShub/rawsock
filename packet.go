@@ -78,25 +78,28 @@ func (p *Packet) Attach(b []byte) {
 	}
 }
 
-// SetLen set head section size, delta-mem from next section
+// SetLen set head section size, delta-mem from data-section
 func (p *Packet) SetHead(head int) {
-	_ = p.b[:head]
-
-	n := p.Len()
+	_ = p.b[head:]
 
 	p.i = head
-	p.b = p.b[:min(head+n, cap(p.b))]
 }
 
 // SetLen set data section size, delta-mem from tail section
 func (p *Packet) SetLen(n int) {
+	_ = p.b[:n]
 	_ = p.b[:n+p.i]
 
 	p.b = p.b[:p.i+n]
 }
 
-// Sets set head and data section size, delta-mem from next section
+// Sets set head and data section size, equivalent to:
+//
+//	p.SetHead(head)
+//	p.SetLen(n)
 func (p *Packet) Sets(head, n int) {
+	_ = p.b[head:]
+	_ = p.b[:n]
 	_ = p.b[:head+n]
 
 	p.i = head
