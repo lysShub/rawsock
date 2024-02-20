@@ -239,8 +239,8 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw re
 				return
 			default:
 			}
-			ip.Sets(0, mtu)
 
+			ip.Sets(0, mtu)
 			err := raw.ReadCtx(ctx, ip)
 			if errors.Is(err, context.Canceled) {
 				return
@@ -249,9 +249,7 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw re
 
 			// recover tcp to ip packet
 			ip.SetHead(0)
-
-			// todo: TX?
-			sum(ip.Data())
+			sum(ip.Data()) // todo: TX?
 
 			// iphdr := header.IPv4(ip.Bytes())
 			// tcphdr := header.TCP(iphdr.Payload())

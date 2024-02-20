@@ -109,7 +109,6 @@ func (r *MockRaw) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	}
 	r.valid(ip, true)
 
-	p.SetHead(0)
 	b := p.Data()
 	b = b[:cap(b)]
 	n := copy(b, ip)
@@ -118,7 +117,7 @@ func (r *MockRaw) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	}
 	p.SetLen(n)
 
-	p.SetHead(int(ip.HeaderLength()))
+	p.SetHead(p.Head() + int(ip.HeaderLength()))
 	return nil
 }
 func (r *MockRaw) Write(ip []byte) (n int, err error) {
