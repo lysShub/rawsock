@@ -188,8 +188,8 @@ func (r *MockRaw) LocalAddr() net.Addr {
 func (r *MockRaw) RemoteAddr() net.Addr {
 	return &net.TCPAddr{IP: r.remote.Addr().AsSlice(), Port: int(r.remote.Port())}
 }
-func (r *MockRaw) LocalAddrAddrPort() netip.AddrPort  { return r.local }
-func (r *MockRaw) RemoteAddrAddrPort() netip.AddrPort { return r.remote }
+func (r *MockRaw) LocalAddrPort() netip.AddrPort  { return r.local }
+func (r *MockRaw) RemoteAddrPort() netip.AddrPort { return r.remote }
 
 func (r *MockRaw) loss() bool {
 	if r.pl < 0.000001 {

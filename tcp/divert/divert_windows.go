@@ -367,5 +367,5 @@ func (r *conn) LocalAddr() net.Addr {
 func (r *conn) RemoteAddr() net.Addr {
 	return &net.TCPAddr{IP: r.raddr.Addr().AsSlice(), Port: int(r.raddr.Port())}
 }
-func (r *conn) LocalAddrAddrPort() netip.AddrPort  { return r.laddr }
-func (r *conn) RemoteAddrAddrPort() netip.AddrPort { return r.raddr }
+func (r *conn) LocalAddrPort() netip.AddrPort  { return r.laddr }
+func (r *conn) RemoteAddrPort() netip.AddrPort { return r.raddr }

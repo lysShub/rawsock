@@ -290,14 +290,6 @@ func listenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 			if errors.Is(err, unix.EADDRINUSE) {
 				return nil, laddr, nil
 			}
-
-			// if ne, ok := err.(*net.OpError); ok {
-			// 	if oe, ok := ne.Unwrap().(*os.SyscallError); ok {
-			// 		if oe.Err == unix.EADDRINUSE {
-			// 			return nil, laddr, nil
-			// 		}
-			// 	}
-			// }
 		}
 		return nil, netip.AddrPort{}, err
 	} else if usedPort {
@@ -424,9 +416,9 @@ func (r *connBPF) RemoteAddr() net.Addr {
 		Zone: r.raddr.Addr().Zone(),
 	}
 }
-func (r *connBPF) LocalAddrAddrPort() netip.AddrPort {
+func (r *connBPF) LocalAddrPort() netip.AddrPort {
 	return r.laddr
 }
-func (r *connBPF) RemoteAddrAddrPort() netip.AddrPort {
+func (r *connBPF) RemoteAddrPort() netip.AddrPort {
 	return r.raddr
 }

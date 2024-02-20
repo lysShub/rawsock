@@ -38,8 +38,8 @@ type RawConn interface {
 
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
-	LocalAddrAddrPort() netip.AddrPort
-	RemoteAddrAddrPort() netip.AddrPort
+	LocalAddrPort() netip.AddrPort
+	RemoteAddrPort() netip.AddrPort
 }
 
 func LocalAddr() netip.Addr {
