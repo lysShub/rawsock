@@ -8,7 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/lysShub/relraw"
@@ -26,9 +26,10 @@ type MockRaw struct {
 	local, remote netip.AddrPort
 	ip            *relraw.IPStack
 
-	out    chan<- header.IPv4
-	in     chan header.IPv4
-	closed atomic.Bool
+	in       chan header.IPv4
+	out      chan<- header.IPv4
+	closed   bool
+	clusedMu sync.RWMutex
 }
 
 func NewMockRaw(
@@ -77,9 +78,9 @@ func NewMockRaw(
 var _ relraw.RawConn = (*MockRaw)(nil)
 
 func (r *MockRaw) Close() error {
-	if r.closed.CompareAndSwap(false, true) {
-		close(r.out)
-	}
+	r.clusedMu.Lock()
+	defer r.clusedMu.Unlock()
+	r.closed = true
 	return nil
 }
 
@@ -121,7 +122,9 @@ func (r *MockRaw) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	return nil
 }
 func (r *MockRaw) Write(ip []byte) (n int, err error) {
-	if r.closed.Load() {
+	r.clusedMu.RLock()
+	defer r.clusedMu.RUnlock()
+	if r.closed {
 		return 0, os.ErrClosed
 	}
 
@@ -135,7 +138,9 @@ func (r *MockRaw) Write(ip []byte) (n int, err error) {
 	return len(ip), nil
 }
 func (r *MockRaw) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
-	if r.closed.Load() {
+	r.clusedMu.RLock()
+	defer r.clusedMu.RUnlock()
+	if r.closed {
 		return os.ErrClosed
 	}
 
