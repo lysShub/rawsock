@@ -154,6 +154,7 @@ func (i *IPStack) attachAndUpdateTransportChecksum(ip []byte) {
 		case updateChecksumWithoutPseudo:
 			sum = ^tcphdr.Checksum()
 		case reCalcChecksum:
+			tcphdr.SetChecksum(0)
 			sum = checksum.Checksum(tcphdr, 0)
 		case notCalcChecksum:
 			sum = 0xffff
@@ -168,6 +169,7 @@ func (i *IPStack) attachAndUpdateTransportChecksum(ip []byte) {
 		case updateChecksumWithoutPseudo:
 			sum = ^udphdr.Checksum()
 		case reCalcChecksum:
+			udphdr.SetChecksum(0)
 			sum = checksum.Checksum(udphdr, 0)
 		case notCalcChecksum:
 			sum = 0xffff

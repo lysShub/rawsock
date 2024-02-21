@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"math/rand"
 	"net"
@@ -149,6 +150,14 @@ func RandPort() uint16 {
 		p -= 128
 	}
 	return p
+}
+
+// maybe not valid ip
+func RandIP() netip.Addr {
+
+	b := binary.BigEndian.AppendUint32(nil, rand.Uint32())
+
+	return netip.AddrFrom4([4]byte(b))
 }
 
 var LocIP = func() netip.Addr {

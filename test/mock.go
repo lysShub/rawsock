@@ -218,7 +218,7 @@ func (r *MockRaw) validChecksum(ip header.IPv4) {
 	psoSum := header.PseudoHeaderChecksum(
 		ip.TransportProtocol(),
 		ip.SourceAddress(), ip.DestinationAddress(),
-		uint16(len(ip)-int(ip.HeaderLength())),
+		uint16(len(ip.Payload())),
 	)
 	sum1 := checksum.Checksum(ip.Payload(), 0)
 
