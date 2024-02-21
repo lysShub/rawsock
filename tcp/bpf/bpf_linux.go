@@ -15,6 +15,7 @@ import (
 
 	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/internal/config"
+	"github.com/lysShub/relraw/internal/config/ipstack"
 	"github.com/lysShub/relraw/tcp"
 	"golang.org/x/net/bpf"
 	"golang.org/x/sys/unix"
@@ -23,6 +24,7 @@ import (
 
 type listener struct {
 	laddr netip.AddrPort
+	cfg   *config.Config
 
 	tcp *net.TCPListener
 
@@ -30,20 +32,16 @@ type listener struct {
 
 	conns   map[netip.AddrPort]struct{}
 	connsMu sync.RWMutex
-
-	readb []byte
 }
 
-func Listen(laddr netip.AddrPort, opts ...relraw.Opt) (*listener, error) {
-	cfg := relraw.Options(opts...)
-
+func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 	var l = &listener{
+		cfg:   relraw.Options(opts...),
 		conns: make(map[netip.AddrPort]struct{}, 16),
-		readb: make([]byte, header.IPv6MinimumSize+header.TCPHeaderMaximumSize),
 	}
 
 	var err error
-	l.tcp, l.laddr, err = listenLocal(laddr, cfg.UsedPort)
+	l.tcp, l.laddr, err = listenLocal(laddr, l.cfg.UsedPort)
 	if err != nil {
 		return nil, errors.Join(err, l.Close())
 	}
@@ -115,8 +113,11 @@ func setTCPSynFilterBPF(fd int, port uint16) error {
 
 // todo: not support private proto that not start with tcp SYN flag
 func (l *listener) Accept() (relraw.RawConn, error) {
+
+	var b = make([]byte, l.cfg.MTU)
 	for {
-		n, err := l.raw.Read(l.readb)
+		b = b[:cap(b)]
+		n, err := l.raw.Read(b)
 		if err != nil {
 			return nil, err
 		} else if n == 0 {
@@ -124,13 +125,13 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 		}
 
 		var raddr netip.AddrPort
-		switch header.IPVersion(l.readb) {
+		switch header.IPVersion(b) {
 		case 4:
-			iphdr := header.IPv4(l.readb[:n])
+			iphdr := header.IPv4(b[:n])
 			tcphdr := header.TCP(iphdr.Payload())
 			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
 		case 6:
-			iphdr := header.IPv6(l.readb[:n])
+			iphdr := header.IPv6(b[:n])
 			tcphdr := header.TCP(iphdr.Payload())
 			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
 		default:
@@ -147,7 +148,7 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 				raddr:   raddr,
 				closeFn: l.deleteConn,
 			}
-			return c, c.init()
+			return c, c.init(l.cfg.IPStackCfg)
 		}
 	}
 }
@@ -188,7 +189,7 @@ type connBPF struct {
 
 var _ relraw.RawConn = (*connBPF)(nil)
 
-func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Opt) (*connBPF, error) {
+func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*connBPF, error) {
 	cfg := relraw.Options(opts...)
 
 	var r = &connBPF{raddr: raddr, ctxCancelDelay: cfg.CtxCancelDelay}
@@ -199,10 +200,10 @@ func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Opt) (*connBPF, error) 
 		return nil, errors.Join(err, r.Close())
 	}
 
-	return r, r.init()
+	return r, r.init(cfg.IPStackCfg)
 }
 
-func (r *connBPF) init() (err error) {
+func (r *connBPF) init(ipCfg ipstack.Options) (err error) {
 	r.raw, err = net.DialIP(
 		"ip:tcp",
 		&net.IPAddr{IP: r.laddr.Addr().AsSlice(), Zone: r.laddr.Addr().Zone()},
@@ -234,7 +235,7 @@ func (r *connBPF) init() (err error) {
 	r.ipstack, err = relraw.NewIPStack(
 		r.laddr.Addr(), r.raddr.Addr(),
 		header.TCPProtocolNumber,
-		relraw.UpdateChecksum,
+		ipCfg.Unmarshal(),
 	)
 	return err
 }

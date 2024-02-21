@@ -54,7 +54,7 @@ func Test_IP_Stack_TCP(t *testing.T) {
 				s, err = relraw.NewIPStack(
 					suit.src, suit.dst,
 					header.TCPProtocolNumber,
-					relraw.RecalcChecksum,
+					relraw.ReCalcChecksum,
 				)
 				require.NoError(t, err)
 			}
@@ -122,7 +122,7 @@ func Test_IP_Stack_UDP(t *testing.T) {
 				s, err = relraw.NewIPStack(
 					suit.src, suit.dst,
 					header.UDPProtocolNumber,
-					relraw.RecalcChecksum,
+					relraw.ReCalcChecksum,
 				)
 				require.NoError(t, err)
 			}

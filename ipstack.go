@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"net/netip"
 
+	"github.com/lysShub/relraw/internal/config/ipstack"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -12,7 +13,7 @@ import (
 
 // build ip header
 type IPStack struct {
-	option    options
+	option    ipstack.Options
 	network   tcpip.NetworkProtocolNumber
 	transport tcpip.TransportProtocolNumber
 
@@ -23,48 +24,28 @@ type IPStack struct {
 	psoSum1 uint16
 }
 
-type options struct {
-	checksum       uint8
-	calcIPChecksum bool
+// UpdateChecksum update tcp/udp checksum, the old
+// checksum is without-pseudo-checksum
+func UpdateChecksum(o *ipstack.Options) {
+	o.Checksum = ipstack.UpdateChecksumWithoutPseudo
 }
 
-var defaultOption = options{
-	checksum:       reCalcChecksum,
-	calcIPChecksum: true,
+// ReCalcChecksum re-calculate tcp/udp checksum
+func ReCalcChecksum(o *ipstack.Options) {
+	o.Checksum = ipstack.ReCalcChecksum
 }
 
-const (
-	_ = iota
-	updateChecksumWithoutPseudo
-	reCalcChecksum
-	notCalcChecksum
-)
-
-// UpdateChecksum update transport layer checksum, the checksum without pseudo-checksum
-func UpdateChecksum(o *options) {
-	o.checksum = updateChecksumWithoutPseudo
+// NotCalcChecksum not change tcp/udp checksum
+func NotCalcChecksum(o *ipstack.Options) {
+	o.Checksum = ipstack.NotCalcChecksum
 }
 
-// RecalcChecksum re-calculate transport layer checksum
-func RecalcChecksum(o *options) {
-	o.checksum = reCalcChecksum
+// NotCalcIPChecksum not set ip4 checksum
+func NotCalcIPChecksum(o *ipstack.Options) {
+	o.CalcIPChecksum = false
 }
 
-// NotsetChecksum not set transport layer checksum, the value is 0
-func NotsetChecksum(o *options) {
-	o.checksum = notCalcChecksum
-}
-
-// NotsetIPChecksum not set ip4 checksum
-func NotsetIPChecksum(o *options) {
-	o.calcIPChecksum = false
-}
-
-func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, opts ...func(*options)) (*IPStack, error) {
-	var option = defaultOption
-	for _, opt := range opts {
-		opt(&option)
-	}
+func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, opts ...ipstack.Option) (*IPStack, error) {
 
 	switch proto {
 	case header.TCPProtocolNumber, header.UDPProtocolNumber:
@@ -73,8 +54,11 @@ func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, op
 	}
 
 	var s = &IPStack{
-		option:    option,
+		option:    ipstack.Default,
 		transport: proto,
+	}
+	for _, opt := range opts {
+		opt(&s.option)
 	}
 
 	if laddr.Is4() {
@@ -135,29 +119,29 @@ func (i *IPStack) Size() int {
 
 func (i *IPStack) AttachInbound(p *Packet) {
 	p.Attach(i.in)
-	i.attachAndUpdateTransportChecksum(p.Data())
+	i.calcTransportChecksum(p.Data())
 }
 
 func (i *IPStack) AttachOutbound(p *Packet) {
 	p.Attach(i.out)
-	i.attachAndUpdateTransportChecksum(p.Data())
+	i.calcTransportChecksum(p.Data())
 }
 
-func (i *IPStack) attachAndUpdateTransportChecksum(ip []byte) {
+func (i *IPStack) calcTransportChecksum(ip []byte) {
 	psosum, p := i.attach(ip)
 
 	switch i.transport {
 	case header.TCPProtocolNumber:
 		tcphdr := header.TCP(p)
 		var sum uint16
-		switch i.option.checksum {
-		case updateChecksumWithoutPseudo:
+		switch i.option.Checksum {
+		case ipstack.UpdateChecksumWithoutPseudo:
 			sum = ^tcphdr.Checksum()
-		case reCalcChecksum:
+		case ipstack.ReCalcChecksum:
 			tcphdr.SetChecksum(0)
 			sum = checksum.Checksum(tcphdr, 0)
-		case notCalcChecksum:
-			sum = 0xffff
+		case ipstack.NotCalcChecksum:
+			return
 		default:
 			panic("")
 		}
@@ -165,14 +149,14 @@ func (i *IPStack) attachAndUpdateTransportChecksum(ip []byte) {
 	case header.UDPProtocolNumber:
 		udphdr := header.UDP(p)
 		var sum uint16
-		switch i.option.checksum {
-		case updateChecksumWithoutPseudo:
+		switch i.option.Checksum {
+		case ipstack.UpdateChecksumWithoutPseudo:
 			sum = ^udphdr.Checksum()
-		case reCalcChecksum:
+		case ipstack.ReCalcChecksum:
 			udphdr.SetChecksum(0)
 			sum = checksum.Checksum(udphdr, 0)
-		case notCalcChecksum:
-			sum = 0xffff
+		case ipstack.NotCalcChecksum:
+			return
 		default:
 			panic("")
 		}
@@ -185,15 +169,15 @@ func (i *IPStack) attach(ip []byte) (uint16, []byte) {
 		iphdr := header.IPv4(ip)
 		iphdr.SetTotalLength(uint16(len(iphdr)))
 		iphdr.SetID(uint16(rand.Uint32()))
-		if i.option.calcIPChecksum {
+		if i.option.CalcIPChecksum {
 			iphdr.SetChecksum(^iphdr.CalculateChecksum())
 		}
 
 		var psosum uint16
-		switch i.option.checksum {
-		case reCalcChecksum, updateChecksumWithoutPseudo:
+		switch i.option.Checksum {
+		case ipstack.ReCalcChecksum, ipstack.UpdateChecksumWithoutPseudo:
 			psosum = checksum.Combine(i.psoSum1, uint16(len(iphdr.Payload())))
-		case notCalcChecksum:
+		case ipstack.NotCalcChecksum:
 		default:
 			panic("")
 		}
@@ -204,10 +188,10 @@ func (i *IPStack) attach(ip []byte) (uint16, []byte) {
 		iphdr.SetPayloadLength(n)
 
 		var psosum uint16
-		switch i.option.checksum {
-		case reCalcChecksum, updateChecksumWithoutPseudo:
+		switch i.option.Checksum {
+		case ipstack.ReCalcChecksum, ipstack.UpdateChecksumWithoutPseudo:
 			psosum = checksum.Combine(i.psoSum1, n)
-		case notCalcChecksum:
+		case ipstack.NotCalcChecksum:
 		default:
 			panic("")
 		}

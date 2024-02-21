@@ -13,29 +13,28 @@ import (
 	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/internal"
 	"github.com/lysShub/relraw/internal/config"
+	"github.com/lysShub/relraw/internal/config/ipstack"
 	"github.com/lysShub/relraw/tcp"
 	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 // set divert priority, for Listen will use p and p+1
-func Priority(p int16) relraw.Opt {
+func Priority(p int16) relraw.Option {
 	return func(c *config.Config) {
 		c.DivertPriorty = p
 	}
 }
 
-func Listen(locAddr netip.AddrPort, opts ...relraw.Opt) (*listener, error) {
-	cfg := relraw.Options(opts...)
+func Listen(locAddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 
 	var l = &listener{
-		conns:    make(map[netip.AddrPort]struct{}, 16),
-		b:        make([]byte, cfg.MTU),
-		priority: cfg.DivertPriorty,
+		cfg:   relraw.Options(opts...),
+		conns: make(map[netip.AddrPort]struct{}, 16),
 	}
 
 	var err error
-	l.tcp, l.addr, err = bindLocal(locAddr, cfg.UsedPort)
+	l.tcp, l.addr, err = bindLocal(locAddr, l.cfg.UsedPort)
 	if err != nil {
 		l.Close()
 		return nil, err
@@ -55,7 +54,7 @@ func Listen(locAddr netip.AddrPort, opts ...relraw.Opt) (*listener, error) {
 		)
 	}
 
-	if l.raw, err = divert.Open(filter, divert.NETWORK, l.priority, divert.READ_ONLY); err != nil {
+	if l.raw, err = divert.Open(filter, divert.NETWORK, l.cfg.DivertPriorty, divert.READ_ONLY); err != nil {
 		l.Close()
 		return nil, err
 	}
@@ -79,15 +78,15 @@ type listener struct {
 	// todo: inject P1
 
 	addr netip.AddrPort
-	tcp  windows.Handle
-	raw  *divert.Divert
+	cfg  *config.Config
 
-	priority int16
+	tcp windows.Handle
+	raw *divert.Divert
+
+	// priority int16
 
 	conns map[netip.AddrPort]struct{}
 	mu    sync.RWMutex
-
-	b []byte
 }
 
 func (l *listener) Close() error {
@@ -106,8 +105,11 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var addr divert.Address
+
+	var b = make([]byte, l.cfg.MTU)
 	for {
-		n, err := l.raw.Recv(l.b, &addr)
+		b = b[:cap(b)]
+		n, err := l.raw.Recv(b, &addr)
 		if err != nil {
 			return nil, err
 		} else if n == 0 {
@@ -121,17 +123,17 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 
 		var raddr netip.AddrPort
 
-		ver := header.IPVersion(l.b)
+		ver := header.IPVersion(b)
 		if ver == 4 && n >= ip4tcp {
-			iphdr := header.IPv4(l.b[:n])
+			iphdr := header.IPv4(b[:n])
 			tcphdr := header.TCP(iphdr.Payload())
 			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
 		} else if ver == 6 && n >= ip6tcp {
-			iphdr := header.IPv6(l.b[:n])
+			iphdr := header.IPv6(b[:n])
 			tcphdr := header.TCP(iphdr.Payload())
 			raddr = netip.AddrPortFrom(netip.AddrFrom16(iphdr.SourceAddress().As16()), tcphdr.SourcePort())
 		} else {
-			return nil, fmt.Errorf("recv invalid ip packet: %s", hex.Dump(l.b[:n]))
+			return nil, fmt.Errorf("recv invalid ip packet: %s", hex.Dump(b[:n]))
 		}
 
 		l.mu.RLock()
@@ -154,7 +156,7 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 			conn.injectAddr.SetOutbound(false)
 			conn.injectAddr.Network().IfIdx = addr.Network().IfIdx
 
-			return conn, conn.init(l.priority + 1)
+			return conn, conn.init(l.cfg.DivertPriorty+1, l.cfg.IPStackCfg)
 			// todo: inject P1
 		}
 	}
@@ -195,7 +197,7 @@ var outboundAddr = func() *divert.Address {
 
 var _ relraw.RawConn = (*conn)(nil)
 
-func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Opt) (*conn, error) {
+func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) {
 	cfg := relraw.Options(opts...)
 	var r = &conn{
 		raddr: raddr,
@@ -221,10 +223,10 @@ func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Opt) (*conn, error) {
 	r.loopback = internal.IsWindowLoopBack(r.laddr.Addr()) &&
 		internal.IsWindowLoopBack(r.raddr.Addr())
 
-	return r, r.init(cfg.DivertPriorty)
+	return r, r.init(cfg.DivertPriorty, cfg.IPStackCfg)
 }
 
-func (r *conn) init(priority int16) (err error) {
+func (r *conn) init(priority int16, ipOpts ipstack.Options) (err error) {
 	var filter string
 	if r.loopback {
 		// loopback recv as outbound packet, so raddr is localAddr laddr is remoteAddr
@@ -248,7 +250,7 @@ func (r *conn) init(priority int16) (err error) {
 	r.ipstack, err = relraw.NewIPStack(
 		r.laddr.Addr(), r.raddr.Addr(),
 		header.TCPProtocolNumber,
-		relraw.UpdateChecksum,
+		ipOpts.Unmarshal(),
 	)
 	return err
 }

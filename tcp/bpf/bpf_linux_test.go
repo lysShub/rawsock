@@ -211,7 +211,7 @@ func Test_Recv(t *testing.T) {
 		)
 
 		const delay = time.Millisecond * 100
-		conn, err := Connect(caddr, saddr, relraw.CtxCancelDelay(delay))
+		conn, err := Connect(caddr, saddr, relraw.CtxDelay(delay))
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())

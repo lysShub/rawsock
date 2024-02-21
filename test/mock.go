@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lysShub/relraw"
+	"github.com/lysShub/relraw/internal/config"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
@@ -30,6 +31,37 @@ type MockRaw struct {
 	out      chan<- header.IPv4
 	closed   bool
 	clusedMu sync.RWMutex
+}
+
+type Option func(*options)
+
+func RawOpts(opts ...relraw.Option) Option {
+	return func(o *options) {
+		for _, opt := range opts {
+			opt(o.Config)
+		}
+	}
+}
+
+func ValidAddr(o *options) {
+	o.validAddr = true
+}
+
+func ValidChecksum(o *options) {
+	o.validChecksum = true
+}
+
+// todo:
+// func Delay(delay time.Duration) Option {
+// 	return func(o *options) {
+// 		o.delay = delay
+// 	}
+// }
+
+func PacketLoss(pl float32) Option {
+	return func(o *options) {
+		o.pl = pl
+	}
 }
 
 func NewMockRaw(
@@ -53,7 +85,14 @@ func NewMockRaw(
 		out:     a,
 		in:      b,
 	}
-	client.ip, err = relraw.NewIPStack(client.local.Addr(), client.remote.Addr(), proto)
+	for _, opt := range opts {
+		opt(&client.options)
+	}
+	client.ip, err = relraw.NewIPStack(
+		client.local.Addr(), client.remote.Addr(),
+		proto,
+		client.options.Config.IPStackCfg.Unmarshal(),
+	)
 	require.NoError(t, err)
 
 	server = &MockRaw{
@@ -65,7 +104,14 @@ func NewMockRaw(
 		out:     b,
 		in:      a,
 	}
-	server.ip, err = relraw.NewIPStack(server.local.Addr(), server.remote.Addr(), proto)
+	for _, opt := range opts {
+		opt(&client.options)
+	}
+	server.ip, err = relraw.NewIPStack(
+		server.local.Addr(), server.remote.Addr(),
+		proto,
+		server.options.Config.IPStackCfg.Unmarshal(),
+	)
 	require.NoError(t, err)
 
 	for _, opt := range opts {
@@ -145,6 +191,7 @@ func (r *MockRaw) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	}
 
 	r.ip.AttachOutbound(p)
+
 	r.valid(p.Data(), false)
 	if r.loss() {
 		return nil
@@ -273,6 +320,8 @@ func (r *MockRaw) validAddr(ip header.IPv4, inbound bool) {
 }
 
 type options struct {
+	*config.Config
+
 	validAddr     bool
 	validChecksum bool
 	delay         time.Duration
@@ -284,27 +333,4 @@ var defaultOptions = options{
 	validChecksum: false,
 	delay:         0,
 	pl:            0,
-}
-
-type Option func(*options)
-
-func ValidAddr(o *options) {
-	o.validAddr = true
-}
-
-func ValidChecksum(o *options) {
-	o.validChecksum = true
-}
-
-// todo:
-// func Delay(delay time.Duration) Option {
-// 	return func(o *options) {
-// 		o.delay = delay
-// 	}
-// }
-
-func PacketLoss(pl float32) Option {
-	return func(o *options) {
-		o.pl = pl
-	}
 }

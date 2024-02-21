@@ -4,11 +4,12 @@ import (
 	"time"
 
 	"github.com/lysShub/relraw/internal/config"
+	"github.com/lysShub/relraw/internal/config/ipstack"
 )
 
-type Opt func(*config.Config)
+type Option func(*config.Config)
 
-func Options(opts ...Opt) *config.Config {
+func Options(opts ...Option) *config.Config {
 	var cfg = config.Default
 	for _, opt := range opts {
 		opt(&cfg)
@@ -16,13 +17,14 @@ func Options(opts ...Opt) *config.Config {
 	return &cfg
 }
 
-func UsedPort() Opt {
+// UsedPort indicate the local port is in-used
+func UsedPort() Option {
 	return func(c *config.Config) {
 		c.UsedPort = true
 	}
 }
 
-func MTU(mtu int) Opt {
+func MTU(mtu int) Option {
 	return func(c *config.Config) {
 		if mtu > 0 {
 			c.MTU = mtu
@@ -30,10 +32,19 @@ func MTU(mtu int) Opt {
 	}
 }
 
-func CtxCancelDelay(delay time.Duration) Opt {
+func CtxDelay(delay time.Duration) Option {
 	return func(c *config.Config) {
 		if delay > 0 {
 			c.CtxCancelDelay = delay
+		}
+	}
+}
+
+// Checksum in WriteCtx/InjectCtx, set tcp/udp checksum calcuate mode
+func Checksum(opts ...ipstack.Option) Option {
+	return func(c *config.Config) {
+		for _, opt := range opts {
+			opt(&c.IPStackCfg)
 		}
 	}
 }
