@@ -38,7 +38,7 @@ type Option func(*options)
 func RawOpts(opts ...relraw.Option) Option {
 	return func(o *options) {
 		for _, opt := range opts {
-			opt(o.Config)
+			opt(&o.Config)
 		}
 	}
 }
@@ -320,7 +320,7 @@ func (r *MockRaw) validAddr(ip header.IPv4, inbound bool) {
 }
 
 type options struct {
-	*config.Config
+	config.Config
 
 	validAddr     bool
 	validChecksum bool
@@ -329,6 +329,8 @@ type options struct {
 }
 
 var defaultOptions = options{
+	Config: config.Default,
+
 	validAddr:     false,
 	validChecksum: false,
 	delay:         0,
