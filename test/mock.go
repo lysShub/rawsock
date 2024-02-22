@@ -21,7 +21,8 @@ import (
 
 type MockRaw struct {
 	options
-	t require.TestingT
+	id string
+	t  require.TestingT
 
 	proto         tcpip.TransportProtocolNumber
 	local, remote netip.AddrPort
@@ -78,6 +79,7 @@ func NewMockRaw(
 
 	client = &MockRaw{
 		options: defaultOptions,
+		id:      "client",
 		t:       t,
 		local:   clientAddr,
 		remote:  serverAddr,
@@ -97,6 +99,7 @@ func NewMockRaw(
 
 	server = &MockRaw{
 		options: defaultOptions,
+		id:      "server",
 		t:       t,
 		local:   serverAddr,
 		remote:  clientAddr,
