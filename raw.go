@@ -11,6 +11,10 @@ type Listener interface {
 
 	// todo: next support
 	// AcceptBy(filter []bpf.Instruction)(RawConn,error)
+
+	Addr() netip.AddrPort
+
+	Close() error
 }
 
 type RawConn interface {

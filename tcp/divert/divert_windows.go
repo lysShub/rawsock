@@ -19,12 +19,34 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-// set divert priority, for Listen will use p and p+1
-func Priority(p int16) relraw.Option {
-	return func(c *config.Config) {
-		c.DivertPriorty = p
-	}
+type listener struct {
+
+	/*
+		Structure
+
+			handle priority      	describe
+
+			a          			  listener read new conn's first packet P1
+
+			a+1        			  connection from Accept, read corresponding packet（not sniff）
+
+			a+2 or MAX_PRIORITY   after a+1 open, inject P1 use this handle（ignore current, tcp will send muti SYN packet）
+	*/
+	// todo: inject P1
+
+	addr netip.AddrPort
+	cfg  *config.Config
+
+	tcp windows.Handle
+	raw *divert.Divert
+
+	// priority int16
+
+	conns map[netip.AddrPort]struct{}
+	mu    sync.RWMutex
 }
+
+var _ relraw.Listener = (*listener)(nil)
 
 func Listen(locAddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 
@@ -62,31 +84,11 @@ func Listen(locAddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 	return l, err
 }
 
-type listener struct {
-
-	/*
-		Structure
-
-			handle priority      	describe
-
-			a          			  listener read new conn's first packet P1
-
-			a+1        			  connection from Accept, read corresponding packet（not sniff）
-
-			a+2 or MAX_PRIORITY   after a+1 open, inject P1 use this handle（ignore current, tcp will send muti SYN packet）
-	*/
-	// todo: inject P1
-
-	addr netip.AddrPort
-	cfg  *config.Config
-
-	tcp windows.Handle
-	raw *divert.Divert
-
-	// priority int16
-
-	conns map[netip.AddrPort]struct{}
-	mu    sync.RWMutex
+// set divert priority, for Listen will use p and p+1
+func Priority(p int16) relraw.Option {
+	return func(c *config.Config) {
+		c.DivertPriorty = p
+	}
 }
 
 func (l *listener) Close() error {
@@ -100,6 +102,8 @@ func (l *listener) Close() error {
 	}
 	return errors.Join(errs...)
 }
+
+func (l *listener) Addr() netip.AddrPort { return l.addr }
 
 func (l *listener) Accept() (relraw.RawConn, error) {
 	l.mu.Lock()

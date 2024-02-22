@@ -23,8 +23,8 @@ import (
 )
 
 type listener struct {
-	laddr netip.AddrPort
-	cfg   *config.Config
+	addr netip.AddrPort
+	cfg  *config.Config
 
 	tcp *net.TCPListener
 
@@ -34,6 +34,8 @@ type listener struct {
 	connsMu sync.RWMutex
 }
 
+var _ relraw.Listener = (*listener)(nil)
+
 func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 	var l = &listener{
 		cfg:   relraw.Options(opts...),
@@ -41,14 +43,14 @@ func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 	}
 
 	var err error
-	l.tcp, l.laddr, err = listenLocal(laddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = listenLocal(laddr, l.cfg.UsedPort)
 	if err != nil {
 		return nil, errors.Join(err, l.Close())
 	}
 
 	l.raw, err = net.ListenIP(
 		"ip:tcp",
-		&net.IPAddr{IP: l.laddr.Addr().AsSlice(), Zone: laddr.Addr().Zone()},
+		&net.IPAddr{IP: l.addr.Addr().AsSlice(), Zone: laddr.Addr().Zone()},
 	)
 	if err != nil {
 		return nil, errors.Join(err, l.Close())
@@ -59,13 +61,28 @@ func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 		return nil, errors.Join(err, l.Close())
 	}
 	e := raw.Control(func(fd uintptr) {
-		err = setTCPSynFilterBPF(int(fd), l.laddr.Port())
+		err = setTCPSynFilterBPF(int(fd), l.addr.Port())
 	})
 	if err = errors.Join(e, err); err != nil {
 		return nil, errors.Join(err, l.Close())
 	}
 
 	return l, nil
+}
+
+func (l *listener) Close() error {
+	var errs []error
+	if l.tcp != nil {
+		errs = append(errs, l.tcp.Close())
+	}
+	if l.raw != nil {
+		errs = append(errs, l.raw.Close())
+	}
+	return errors.Join(errs...)
+}
+
+func (l *listener) Addr() netip.AddrPort {
+	return l.addr
 }
 
 func setTCPSynFilterBPF(fd int, port uint16) error {
@@ -144,7 +161,7 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 
 		if !ok {
 			c := &connBPF{
-				laddr:   l.laddr,
+				laddr:   l.addr,
 				raddr:   raddr,
 				closeFn: l.deleteConn,
 			}
@@ -161,17 +178,6 @@ func (l *listener) deleteConn(raddr netip.AddrPort) error {
 	delete(l.conns, raddr)
 	l.connsMu.Unlock()
 	return nil
-}
-
-func (l *listener) Close() error {
-	var errs []error
-	if l.tcp != nil {
-		errs = append(errs, l.tcp.Close())
-	}
-	if l.raw != nil {
-		errs = append(errs, l.raw.Close())
-	}
-	return errors.Join(errs...)
 }
 
 type connBPF struct {
