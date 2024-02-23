@@ -182,7 +182,9 @@ func (r *MockRaw) Write(ip []byte) (n int, err error) {
 		return len(ip), nil
 	}
 
-	r.out <- ip
+	tmp := make([]byte, len(ip))
+	copy(tmp, ip)
+	r.out <- tmp
 
 	return len(ip), nil
 }
@@ -200,22 +202,27 @@ func (r *MockRaw) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 		return nil
 	}
 
+	tmp := make([]byte, p.Len())
+	copy(tmp, p.Data())
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case r.out <- p.Data():
+	case r.out <- tmp:
 	}
 	return nil
 }
 func (r *MockRaw) Inject(ip []byte) (err error) {
 	r.valid(ip, true)
 
+	var tmp = make([]byte, len(ip))
+	copy(tmp, ip)
+
 	defer func() {
 		if recover() != nil {
 			err = os.ErrClosed
 		}
 	}()
-	r.in <- ip
+	r.in <- tmp
 	return nil
 }
 func (r *MockRaw) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {

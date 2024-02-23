@@ -3,10 +3,12 @@ package test
 import (
 	"context"
 	"io"
+	"math/rand"
 	"net/netip"
 	"testing"
 	"time"
 
+	"github.com/lysShub/relraw"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -60,6 +62,50 @@ func Test_Mock_RawConn(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("MockRaw/Write/memcpy", func(t *testing.T) {
+		rawClient, rawServer := NewMockRaw(
+			t, header.TCPProtocolNumber,
+			netip.AddrPortFrom(LocIP, RandPort()), netip.AddrPortFrom(LocIP, RandPort()),
+		)
+		defer rawClient.Close()
+		defer rawServer.Close()
+
+		var tcphdr = []byte{0: 1, 1: 2, 19: 0}
+		_, err := rawClient.Write(tcphdr)
+		require.NoError(t, err)
+
+		tcphdr[0] = 2
+
+		var b = make([]byte, len(tcphdr))
+		n, err := rawServer.Read(b)
+		require.NoError(t, err)
+		require.Equal(t, []byte{0: 1, 1: 2, 19: 0}, b[:n])
+	})
+
+	t.Run("MockRaw/WriteCtx/memcpy", func(t *testing.T) {
+		rawClient, rawServer := NewMockRaw(
+			t, header.TCPProtocolNumber,
+			netip.AddrPortFrom(LocIP, RandPort()), netip.AddrPortFrom(LocIP, RandPort()),
+		)
+		defer rawClient.Close()
+		defer rawServer.Close()
+
+		p1 := relraw.NewPacket(20, 22)
+		tcphdr := header.TCP(p1.Data())
+		tcphdr.Encode(&header.TCPFields{DataOffset: 20})
+		tcphdr.Payload()[0] = 1
+
+		err := rawClient.WriteCtx(context.Background(), p1)
+		require.NoError(t, err)
+
+		p1.Data()[20] = 2
+
+		p2 := relraw.NewPacket(0, 64)
+		err = rawServer.ReadCtx(context.Background(), p2)
+		require.NoError(t, err)
+		require.Equal(t, byte(1), header.TCP(p2.Data()).Payload()[0])
+	})
+
 	t.Run("MockRaw/close", func(t *testing.T) {
 		t.Skip("todo")
 	})
@@ -68,7 +114,11 @@ func Test_Mock_RawConn(t *testing.T) {
 		var (
 			saddr = netip.AddrPortFrom(LocIP, RandPort())
 			caddr = netip.AddrPortFrom(LocIP, RandPort())
+
+			seed int64 = time.Now().UnixNano()
+			r          = rand.New(rand.NewSource(seed))
 		)
+		t.Log("seed", seed)
 		rawClient, rawServer := NewMockRaw(
 			t, header.TCPProtocolNumber,
 			caddr, saddr,
@@ -77,7 +127,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		defer rawClient.Close()
 		defer rawServer.Close()
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 		defer cancel()
 
 		// server
@@ -93,11 +143,11 @@ func Test_Mock_RawConn(t *testing.T) {
 			require.NoError(t, err)
 			defer l.Close()
 
-			conn, err := l.Accept()
+			tcp, err := l.Accept()
 			require.NoError(t, err)
-			defer conn.Close()
+			defer tcp.Close()
 
-			io.Copy(conn, conn)
+			io.Copy(tcp, tcp)
 		}()
 		time.Sleep(time.Second)
 
@@ -115,14 +165,19 @@ func Test_Mock_RawConn(t *testing.T) {
 			require.NoError(t, err)
 			defer conn.Close()
 
-			msg := []byte("hellow world")
-			_, err = conn.Write(msg)
-			require.NoError(t, err)
+			for i := 0; i < 64; i++ {
+				var msg = make([]byte, r.Int31()%1023+1)
+				r.Read(msg)
 
-			var b = make([]byte, 16)
-			n, err := conn.Read(b)
-			require.NoError(t, err)
-			require.Equal(t, msg, b[:n])
+				_, err = conn.Write(msg)
+				require.NoError(t, err)
+
+				var b = make([]byte, len(msg))
+				_, err = io.ReadFull(conn, b)
+				require.NoError(t, err)
+
+				require.Equal(t, string(msg), string(b), i)
+			}
 		}
 
 		cancel()
