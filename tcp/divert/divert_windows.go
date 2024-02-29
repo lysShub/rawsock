@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sort"
 	"sync"
+	"time"
 
 	"github.com/lysShub/divert-go"
 	"github.com/lysShub/relraw"
+	"github.com/lysShub/relraw/internal"
 	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/internal/config/ipstack"
 	"github.com/lysShub/relraw/tcp"
@@ -38,25 +41,29 @@ type listener struct {
 	cfg  *config.Config
 
 	tcp windows.Handle
-	raw *divert.Divert
+
+	raw             *divert.Divert
+	minIPPacketSize int
 
 	// priority int16
 
-	conns map[netip.AddrPort]struct{}
-	mu    sync.RWMutex
+	// AddrPort:ISN
+	conns map[netip.AddrPort]uint32
+
+	closedConns   []internal.ClosedConnInfo
+	closedConnsMu sync.RWMutex
 }
 
 var _ relraw.Listener = (*listener)(nil)
 
 func Listen(locAddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
-
 	var l = &listener{
 		cfg:   relraw.Options(opts...),
-		conns: make(map[netip.AddrPort]struct{}, 16),
+		conns: make(map[netip.AddrPort]uint32, 16),
 	}
 
 	var err error
-	l.tcp, l.addr, err = bindLocal(locAddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = internal.BindLocal(locAddr, l.cfg.UsedPort)
 	if err != nil {
 		l.Close()
 		return nil, err
@@ -80,7 +87,7 @@ func Listen(locAddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 		l.Close()
 		return nil, err
 	}
-
+	l.minIPPacketSize = internal.MinIPPacketSize(l.addr.Addr(), header.TCPProtocolNumber)
 	return l, err
 }
 
@@ -106,8 +113,6 @@ func (l *listener) Close() error {
 func (l *listener) Addr() netip.AddrPort { return l.addr }
 
 func (l *listener) Accept() (relraw.RawConn, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	var addr divert.Address
 
 	var b = make([]byte, l.cfg.MTU)
@@ -116,49 +121,41 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 		n, err := l.raw.Recv(b, &addr)
 		if err != nil {
 			return nil, err
-		} else if n == 0 {
-			return nil, fmt.Errorf("divert shutdown")
+		} else if n < l.minIPPacketSize {
+			return nil, fmt.Errorf("recved invalid ip packet, bytes %d", n)
 		}
-
-		const (
-			ip4tcp = header.TCPMinimumSize + header.IPv4MinimumSize
-			ip6tcp = header.TCPMinimumSize + header.ICMPv6MinimumSize
-		)
+		l.purgeOne()
 
 		var raddr netip.AddrPort
-
-		ver := header.IPVersion(b)
-		if ver == 4 && n >= ip4tcp {
+		var isn uint32
+		switch header.IPVersion(b) {
+		case 4:
 			iphdr := header.IPv4(b[:n])
 			tcphdr := header.TCP(iphdr.Payload())
 			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
-		} else if ver == 6 && n >= ip6tcp {
+			isn = tcphdr.SequenceNumber()
+		case 6:
 			iphdr := header.IPv6(b[:n])
 			tcphdr := header.TCP(iphdr.Payload())
 			raddr = netip.AddrPortFrom(netip.AddrFrom16(iphdr.SourceAddress().As16()), tcphdr.SourcePort())
-		} else {
+			isn = tcphdr.SequenceNumber()
+		default:
 			return nil, fmt.Errorf("recv invalid ip packet: %s", hex.Dump(b[:n]))
 		}
 
-		l.mu.RLock()
-		_, ok := l.conns[raddr]
-		l.mu.RUnlock()
-		if ok {
-			continue // todo: inject
-		} else {
-			l.mu.Lock()
-			l.conns[raddr] = struct{}{}
-			l.mu.Unlock()
+		newConn := false
+		old, ok := l.conns[raddr]
+		if !ok || (ok && old != isn) {
+			l.conns[raddr] = isn
+			newConn = true
+		}
 
-			var conn = &conn{
-				laddr:      l.addr,
-				raddr:      raddr,
-				loopback:   addr.Loopback(),
-				closeFn:    l.deleteConn,
-				injectAddr: &divert.Address{},
-			}
-			conn.injectAddr.SetOutbound(false)
-			conn.injectAddr.Network().IfIdx = addr.Network().IfIdx
+		if newConn {
+			conn := newConnect(
+				l.addr, raddr, isn,
+				addr.Loopback(), int(addr.Network().IfIdx),
+				l.deleteConn,
+			)
 
 			return conn, conn.init(l.cfg.DivertPriorty+1, l.cfg.IPStackCfg)
 			// todo: inject P1
@@ -166,21 +163,55 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 	}
 }
 
-func (l *listener) deleteConn(raddr netip.AddrPort) error {
+func (l *listener) purgeOne() {
+	l.closedConnsMu.Lock()
+	defer l.closedConnsMu.Unlock()
+
+	if n := len(l.closedConns); n > 0 {
+		i := n - 1
+		c := l.closedConns[i]
+
+		if time.Since(c.DeleteAt) > time.Minute {
+			isn, ok := l.conns[c.Raddr]
+			if ok && isn == c.ISN {
+				delete(l.conns, c.Raddr)
+			}
+
+			l.closedConns = l.closedConns[:n-1]
+		}
+	}
+}
+
+func (l *listener) deleteConn(raddr netip.AddrPort, isn uint32) error {
 	if l == nil {
 		return nil
 	}
-	l.mu.Lock()
-	delete(l.conns, raddr)
-	l.mu.Unlock()
+	l.closedConnsMu.Lock()
+	defer l.closedConnsMu.Unlock()
+
+	l.closedConns = append(
+		l.closedConns,
+		internal.ClosedConnInfo{
+			DeleteAt: time.Now(),
+			Raddr:    raddr,
+			ISN:      isn,
+		},
+	)
+
+	// desc
+	sort.Slice(l.closedConns, func(i, j int) bool {
+		it := l.closedConns[i].DeleteAt
+		jt := l.closedConns[i].DeleteAt
+		return it.After(jt)
+	})
 	return nil
 }
 
 type conn struct {
 	laddr, raddr netip.AddrPort
+	isn          uint32
 	loopback     bool
 
-	//
 	tcp windows.Handle
 
 	raw *divert.Divert
@@ -203,15 +234,9 @@ var _ relraw.RawConn = (*conn)(nil)
 
 func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) {
 	cfg := relraw.Options(opts...)
-	var r = &conn{
-		raddr: raddr,
-	}
-	var err error
 
-	// listenLocal, forbid other process use this port
-	r.tcp, r.laddr, err = bindLocal(laddr, cfg.UsedPort)
+	tcp, laddr, err := internal.BindLocal(laddr, cfg.UsedPort)
 	if err != nil {
-		r.Close()
 		return nil, err
 	}
 
@@ -231,12 +256,30 @@ func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) 
 		}
 	}
 
-	r.injectAddr = &divert.Address{}
-	r.injectAddr.SetOutbound(false)
-	r.injectAddr.Network().IfIdx = uint32(idx)
+	loopback := divert.Loopback(laddr.Addr(), raddr.Addr())
+	c := newConnect(
+		laddr, raddr, 0,
+		loopback, idx, nil,
+	)
+	c.tcp = tcp
 
-	r.loopback = divert.Loopback(laddr.Addr(), raddr.Addr())
-	return r, r.init(cfg.DivertPriorty, cfg.IPStackCfg)
+	return c, c.init(cfg.DivertPriorty, cfg.IPStackCfg)
+}
+
+func newConnect(laddr, raddr netip.AddrPort, isn uint32, loopback bool, ifIdx int, closeCall tcp.CloseCallback) *conn {
+
+	var conn = &conn{
+		laddr:      laddr,
+		raddr:      raddr,
+		isn:        isn,
+		loopback:   loopback,
+		injectAddr: &divert.Address{},
+		closeFn:    closeCall,
+	}
+	conn.injectAddr.SetOutbound(false)
+	conn.injectAddr.Network().IfIdx = uint32(ifIdx)
+
+	return conn
 }
 
 func (r *conn) init(priority int16, ipOpts ipstack.Options) (err error) {
@@ -266,52 +309,6 @@ func (r *conn) init(priority int16, ipOpts ipstack.Options) (err error) {
 		ipOpts.Unmarshal(),
 	)
 	return err
-}
-
-func bindLocal(laddr netip.AddrPort, usedPort bool) (windows.Handle, netip.AddrPort, error) {
-	var sa windows.Sockaddr
-	var af int = windows.AF_INET
-	if laddr.Addr().Is4() {
-		sa = &windows.SockaddrInet4{Addr: laddr.Addr().As4(), Port: int(laddr.Port())}
-	} else {
-		sa = &windows.SockaddrInet6{Addr: laddr.Addr().As16(), Port: int(laddr.Port())}
-		af = windows.AF_INET6
-	}
-
-	fd, err := windows.Socket(af, windows.SOCK_STREAM, windows.IPPROTO_TCP)
-	if err != nil {
-		return windows.InvalidHandle, netip.AddrPort{}, &net.OpError{
-			Op:  "socket",
-			Err: err,
-		}
-	}
-
-	if err := windows.Bind(fd, sa); err != nil {
-		if err == windows.WSAEADDRINUSE && usedPort {
-			return 0, laddr, nil
-		}
-		return windows.InvalidHandle, netip.AddrPort{}, &net.OpError{
-			Op:  "bind",
-			Err: err,
-		}
-	} else if usedPort {
-		return windows.InvalidHandle, netip.AddrPort{}, config.ErrNotUsedPort(laddr.Port())
-	}
-
-	if laddr.Port() == 0 {
-		rsa, err := windows.Getsockname(fd)
-		if err != nil {
-			return windows.InvalidHandle, netip.AddrPort{}, pkge.WithMessage(err, "getsockname")
-		}
-		switch sa := rsa.(type) {
-		case *windows.SockaddrInet4:
-			return fd, netip.AddrPortFrom(laddr.Addr(), uint16(sa.Port)), nil
-		case *windows.SockaddrInet6:
-			return fd, netip.AddrPortFrom(laddr.Addr(), uint16(sa.Port)), nil
-		default:
-		}
-	}
-	return fd, laddr, nil
 }
 
 func (r *conn) Read(ip []byte) (n int, err error) {
@@ -362,7 +359,7 @@ func (r *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
 func (c *conn) Close() error {
 	var errs []error
 	if c.closeFn != nil {
-		errs = append(errs, c.closeFn(c.raddr))
+		errs = append(errs, c.closeFn(c.raddr, c.isn))
 	}
 	if c.tcp != 0 {
 		errs = append(errs, windows.Close(c.tcp))

@@ -3,99 +3,103 @@ package bpf
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/lysShub/relraw"
-	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/test"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-func Test_ListenLocal(t *testing.T) {
+func Test_Listen(t *testing.T) {
 
-	t.Run("mutiple-use", func(t *testing.T) {
+	t.Run("accept-once", func(t *testing.T) {
 		addr := netip.AddrPortFrom(test.LocIP, test.RandPort())
 
-		l1, addr1, err := listenLocal(addr, false)
-		require.NoError(t, err)
-		defer l1.Close()
-		require.Equal(t, addr1, addr)
+		var cnt atomic.Uint32
+		go func() {
+			l, err := Listen(addr)
+			require.NoError(t, err)
+			defer l.Close()
 
-		l1, addr2, err := listenLocal(addr, false)
-		require.Error(t, err)
-		require.Nil(t, l1)
-		require.False(t, addr2.IsValid())
-	})
+			for {
+				conn, err := l.Accept()
+				require.NoError(t, err)
+				conn.Close()
+				cnt.Add(1)
+			}
+		}()
+		time.Sleep(time.Second)
 
-	t.Run("mutiple-use-not-used", func(t *testing.T) {
-		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+		go func() {
+			conn, err := net.DialTCP("tcp", nil, &net.TCPAddr{IP: test.LocIP.AsSlice(), Port: int(addr.Port())})
+			fmt.Println(conn, err)
+		}()
 
-		l, _, err := listenLocal(addr, true)
-		require.True(t, errors.Is(err, config.ErrNotUsedPort(addr.Port())))
-		require.Nil(t, l)
-	})
-
-	t.Run("mutiple-use-after-used", func(t *testing.T) {
-		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
-
-		l1, _, err := listenLocal(addr, false)
-		require.NoError(t, err)
-		defer l1.Close()
-
-		l2, addr1, err := listenLocal(addr, true)
-		require.NoError(t, err)
-		require.Nil(t, l2)
-		require.Equal(t, addr, addr1)
-	})
-
-	t.Run("auto-alloc-port", func(t *testing.T) {
-		addr := netip.AddrPortFrom(netip.AddrFrom4([4]byte{}), 0)
-
-		l, addr2, err := listenLocal(addr, false)
-		require.NoError(t, err)
-		defer l.Close()
-		require.Equal(t, addr2.Addr(), addr.Addr())
-		require.NotZero(t, addr2.Port())
-	})
-
-	t.Run("auto-alloc-port2", func(t *testing.T) {
-		addr := netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 0)
-
-		l, addr2, err := listenLocal(addr, false)
-		require.NoError(t, err)
-		defer l.Close()
-		require.Equal(t, addr2.Addr(), addr.Addr())
-		require.NotZero(t, addr2.Port())
-	})
-
-	t.Run("avoid-send-SYN", func(t *testing.T) {
-		addr := netip.AddrPortFrom(test.LocIP, test.RandPort())
-
-		l, _, err := listenLocal(addr, false)
-		require.NoError(t, err)
-		defer l.Close()
-
-		conn, err := net.DialTimeout("tcp", addr.String(), time.Second*2)
-		require.True(t, errors.Is(err, context.DeadlineExceeded))
-		require.Nil(t, conn)
+		time.Sleep(time.Second * 2)
+		require.Equal(t, uint32(1), cnt.Load())
 	})
 
 }
 
-func Test_BPF_Filter(t *testing.T) {
-	// todo: test conn tcp
+func Test_Connect(t *testing.T) {
 
-	t.Run("TCPSynFilterBPF/loopback", func(t *testing.T) {
-		t.Skip("todo")
+	t.Run("loopback", func(t *testing.T) {
+		var (
+			caddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+			saddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+		)
+
+		// todo: add noise
+		go func() {
+			l, err := net.ListenTCP("tcp", test.TCPAddr(saddr))
+			require.NoError(t, err)
+			defer l.Close()
+
+			conn, err := l.AcceptTCP()
+			require.NoError(t, err)
+
+			_, err = io.Copy(conn, conn)
+			require.NoError(t, err)
+		}()
+		time.Sleep(time.Second)
+
+		raw, err := Connect(caddr, saddr)
+		require.NoError(t, err)
+		us := test.NewUstack(t, caddr.Addr(), false)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		test.BindRawToUstack(t, ctx, us, raw)
+
+		conn, err := gonet.DialTCPWithBind(
+			ctx, us.Stack(),
+			test.FullAddress(caddr), test.FullAddress(saddr),
+			header.IPv4ProtocolNumber,
+		)
+		require.NoError(t, err)
+
+		req := []byte("hello world")
+		_, err = conn.Write(req)
+		require.NoError(t, err)
+
+		resp := make([]byte, len(req))
+		n, err := conn.Read(resp)
+		require.NoError(t, err)
+		require.Equal(t, req, resp[:n])
+
+		require.NoError(t, conn.Close())
+		cancel()
 	})
 
-	t.Run("TCPSynFilterBPF/tuple-nic", func(t *testing.T) {
+	t.Run("nics", func(t *testing.T) {
 		tt, err := test.CreateTunTuple()
 		require.NoError(t, err)
 		var (
@@ -147,60 +151,6 @@ func Test_BPF_Filter(t *testing.T) {
 		}
 	})
 
-}
-
-func Test_Connect(t *testing.T) {
-
-	t.Run("Connect/loopback", func(t *testing.T) {
-		var (
-			caddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
-			saddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
-		)
-
-		go func() {
-			l, err := net.ListenTCP("tcp", test.TCPAddr(saddr))
-			require.NoError(t, err)
-			defer l.Close()
-
-			conn, err := l.AcceptTCP()
-			require.NoError(t, err)
-
-			_, err = io.Copy(conn, conn)
-			require.NoError(t, err)
-		}()
-		time.Sleep(time.Second)
-
-		raw, err := Connect(caddr, saddr)
-		require.NoError(t, err)
-		us := test.NewUstack(t, caddr.Addr(), false)
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		test.BindRawToUstack(t, ctx, us, raw)
-
-		conn, err := gonet.DialTCPWithBind(
-			ctx, us.Stack(),
-			test.FullAddress(caddr), test.FullAddress(saddr),
-			header.IPv4ProtocolNumber,
-		)
-		require.NoError(t, err)
-
-		req := []byte("hello world")
-		_, err = conn.Write(req)
-		require.NoError(t, err)
-
-		resp := make([]byte, len(req))
-		n, err := conn.Read(resp)
-		require.NoError(t, err)
-		require.Equal(t, req, resp[:n])
-
-		require.NoError(t, conn.Close())
-		cancel()
-	})
-
-	t.Run("Connnect/tuple-nic", func(t *testing.T) {
-		t.Skip("todo")
-	})
 }
 
 func Test_Recv(t *testing.T) {

@@ -9,6 +9,9 @@ import (
 type Listener interface {
 	Accept() (RawConn, error)
 
+	// todo:
+	// AcceptCtx(ctx context.Context)(RawConn, error)
+
 	// todo: next support
 	// AcceptBy(filter []bpf.Instruction)(RawConn,error)
 

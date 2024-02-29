@@ -2,7 +2,6 @@ package divert
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net"
 	"net/netip"
@@ -10,10 +9,8 @@ import (
 	"time"
 
 	"github.com/lysShub/divert-go"
-	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/test"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
@@ -22,42 +19,11 @@ func init() {
 	divert.MustLoad(divert.DLL, divert.Sys)
 }
 
-func Test_Bind_Local(t *testing.T) {
+func Test_Listen(t *testing.T) {
+	t.Skip("")
 
-	t.Run("UsedPort/normal", func(t *testing.T) {
-		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
-
-		fd1, _, err := bindLocal(addr, false)
-		require.NoError(t, err)
-		defer windows.Close(fd1)
-
-		fd2, addr1, err := bindLocal(addr, true)
-		require.NoError(t, err)
-		require.Equal(t, windows.Handle(0), fd2)
-		require.Equal(t, addr, addr1)
+	t.Run("accept-once", func(t *testing.T) {
 	})
-
-	t.Run("UsedPort/repeat", func(t *testing.T) {
-		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
-
-		fd1, _, err := bindLocal(addr, false)
-		require.NoError(t, err)
-		defer windows.Close(fd1)
-
-		fd2, _, err := bindLocal(addr, false)
-		require.True(t, errors.Is(err, windows.WSAEADDRINUSE))
-		require.Equal(t, windows.InvalidHandle, fd2)
-	})
-
-	t.Run("UsedPort/not-used", func(t *testing.T) {
-		port := test.RandPort()
-		var addr = netip.AddrPortFrom(test.LocIP, port)
-
-		fd1, _, err := bindLocal(addr, true)
-		require.True(t, errors.Is(err, config.ErrNotUsedPort(port)))
-		require.Equal(t, windows.InvalidHandle, fd1)
-	})
-
 }
 
 func Test_Connect(t *testing.T) {
@@ -119,8 +85,4 @@ func Test_Connect(t *testing.T) {
 	// defer tp.Close()
 	// })
 
-}
-
-func Test_Listen(t *testing.T) {
-	t.Skip("")
 }
