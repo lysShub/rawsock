@@ -11,10 +11,10 @@ import (
 
 	"github.com/lysShub/divert-go"
 	"github.com/lysShub/relraw"
-	"github.com/lysShub/relraw/internal"
 	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/internal/config/ipstack"
 	"github.com/lysShub/relraw/tcp"
+	pkge "github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
@@ -215,18 +215,27 @@ func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) 
 		return nil, err
 	}
 
-	r.injectAddr = &divert.Address{}
-	r.injectAddr.SetOutbound(false)
-	id, err := internal.GetNICIndex(laddr.Addr())
+	addr, idx, err := divert.Gateway(raddr.Addr())
 	if err != nil {
 		return nil, err
+	}
+	if laddr.Addr().IsUnspecified() {
+		laddr = netip.AddrPortFrom(addr, laddr.Port())
 	} else {
-		r.injectAddr.Network().IfIdx = uint32(id)
+		if laddr.Addr() != addr {
+			err = pkge.WithMessagef(
+				windows.ERROR_NETWORK_UNREACHABLE,
+				"%s -> %s", laddr.Addr().String(), raddr.Addr().String(),
+			)
+			return nil, err
+		}
 	}
 
-	r.loopback = internal.IsWindowLoopBack(r.laddr.Addr()) &&
-		internal.IsWindowLoopBack(r.raddr.Addr())
+	r.injectAddr = &divert.Address{}
+	r.injectAddr.SetOutbound(false)
+	r.injectAddr.Network().IfIdx = uint32(idx)
 
+	r.loopback = divert.Loopback(laddr.Addr(), raddr.Addr())
 	return r, r.init(cfg.DivertPriorty, cfg.IPStackCfg)
 }
 
@@ -292,10 +301,7 @@ func bindLocal(laddr netip.AddrPort, usedPort bool) (windows.Handle, netip.AddrP
 	if laddr.Port() == 0 {
 		rsa, err := windows.Getsockname(fd)
 		if err != nil {
-			return windows.InvalidHandle, netip.AddrPort{}, &net.OpError{
-				Op:  "getsockname",
-				Err: err,
-			}
+			return windows.InvalidHandle, netip.AddrPort{}, pkge.WithMessage(err, "getsockname")
 		}
 		switch sa := rsa.(type) {
 		case *windows.SockaddrInet4:
