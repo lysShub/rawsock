@@ -14,6 +14,7 @@ import (
 	"unsafe"
 
 	"github.com/lysShub/relraw"
+	ibpf "github.com/lysShub/relraw/internal/bpf"
 	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/internal/config/ipstack"
 	"github.com/lysShub/relraw/tcp"
@@ -60,11 +61,12 @@ func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 	if err != nil {
 		return nil, errors.Join(err, l.Close())
 	}
-	e := raw.Control(func(fd uintptr) {
-		err = setTCPSynFilterBPF(int(fd), l.addr.Port())
-	})
-	if err = errors.Join(e, err); err != nil {
-		return nil, errors.Join(err, l.Close())
+
+	if err = ibpf.SetBPF(
+		raw,
+		ibpf.FilterDstPortAndSynFlag(l.addr.Port()),
+	); err != nil {
+		return nil, err
 	}
 
 	return l, nil
@@ -83,49 +85,6 @@ func (l *listener) Close() error {
 
 func (l *listener) Addr() netip.AddrPort {
 	return l.addr
-}
-
-func setTCPSynFilterBPF(fd int, port uint16) error {
-	var ins = []bpf.Instruction{
-		// load ip version
-		bpf.LoadAbsolute{Off: 0, Size: 1},
-		bpf.ALUOpConstant{Op: bpf.ALUOpShiftRight, Val: 4},
-
-		// ipv4
-		bpf.JumpIf{Cond: bpf.JumpNotEqual, Val: 4, SkipTrue: 1},
-		bpf.LoadMemShift{Off: 0},
-
-		// ipv6
-		bpf.JumpIf{Cond: bpf.JumpNotEqual, Val: 6, SkipTrue: 1},
-		bpf.LoadConstant{Dst: bpf.RegX, Val: 40},
-	}
-
-	ins = append(ins, []bpf.Instruction{
-		// destination port
-		bpf.LoadIndirect{Off: 2, Size: 2},
-		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(port), SkipTrue: 1},
-		bpf.RetConstant{Val: 0},
-
-		// SYN flag
-		bpf.LoadIndirect{Off: 13, Size: 1},
-		bpf.ALUOpConstant{Op: bpf.ALUOpAnd, Val: 0b01000000},
-		bpf.JumpIf{Cond: bpf.JumpEqual, Val: 0b01000000, SkipTrue: 1},
-		bpf.RetConstant{Val: 0},
-
-		bpf.RetConstant{Val: 0xffff},
-	}...)
-
-	var prog *unix.SockFprog
-	if rawIns, err := bpf.Assemble(ins); err != nil {
-		return err
-	} else {
-		prog = &unix.SockFprog{
-			Len:    uint16(len(rawIns)),
-			Filter: (*unix.SockFilter)(unsafe.Pointer(&rawIns[0])),
-		}
-	}
-
-	return unix.SetsockoptSockFprog(int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog)
 }
 
 // todo: not support private proto that not start with tcp SYN flag
@@ -219,23 +178,28 @@ func (r *connBPF) init(ipCfg ipstack.Options) (err error) {
 		return errors.Join(err, r.Close())
 	}
 
-	if sc, err := r.raw.SyscallConn(); err != nil {
+	raw, err := r.raw.SyscallConn()
+	if err != nil {
 		return errors.Join(err, r.Close())
-	} else {
-		e := sc.Control(func(fd uintptr) {
-			// read ip header
-			err = unix.SetsockoptByte(int(fd), unix.IPPROTO_IP, unix.IP_HDRINCL, 1)
-			if err != nil {
-				return
-			}
-			err = setPortsFilterBPF(fd, r.laddr.Port(), r.raddr.Port())
-			if err != nil {
-				return
-			}
-		})
-		if err := errors.Join(err, e); err != nil {
-			return errors.Join(err, r.Close())
+	}
+
+	// filter src/dst ports
+	if err = ibpf.SetBPF(
+		raw,
+		ibpf.FilterSrcPortAndDstPort(r.raddr.Port(), r.laddr.Port()),
+	); err != nil {
+		return errors.Join(err, r.Close())
+	}
+
+	// read ip header
+	e := raw.Control(func(fd uintptr) {
+		err = unix.SetsockoptByte(int(fd), unix.IPPROTO_IP, unix.IP_HDRINCL, 1)
+		if err != nil {
+			return
 		}
+	})
+	if err := errors.Join(err, e); err != nil {
+		return errors.Join(err, r.Close())
 	}
 
 	r.ipstack, err = relraw.NewIPStack(
@@ -244,49 +208,6 @@ func (r *connBPF) init(ipCfg ipstack.Options) (err error) {
 		ipCfg.Unmarshal(),
 	)
 	return err
-}
-
-// setPortsFilterBPF BPF filter by localPort and remotePort
-func setPortsFilterBPF(fd uintptr, localPort, remotePort uint16) error {
-	var ins = []bpf.Instruction{
-		// load ip version
-		bpf.LoadAbsolute{Off: 0, Size: 1},
-		bpf.ALUOpConstant{Op: bpf.ALUOpShiftRight, Val: 4},
-
-		// ipv4
-		bpf.JumpIf{Cond: bpf.JumpNotEqual, Val: 4, SkipTrue: 1},
-		bpf.LoadMemShift{Off: 0},
-
-		// ipv6
-		bpf.JumpIf{Cond: bpf.JumpNotEqual, Val: 6, SkipTrue: 1},
-		bpf.LoadConstant{Dst: bpf.RegX, Val: 40},
-	}
-
-	ins = append(ins, []bpf.Instruction{
-		// source port
-		bpf.LoadIndirect{Off: 0, Size: 2},
-		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(remotePort), SkipTrue: 1},
-		bpf.RetConstant{Val: 0},
-
-		// destination port
-		bpf.LoadIndirect{Off: 2, Size: 2},
-		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(localPort), SkipTrue: 1},
-		bpf.RetConstant{Val: 0},
-
-		bpf.RetConstant{Val: 0xffff},
-	}...)
-
-	var prog *unix.SockFprog
-	if rawIns, err := bpf.Assemble(ins); err != nil {
-		return err
-	} else {
-		prog = &unix.SockFprog{
-			Len:    uint16(len(rawIns)),
-			Filter: (*unix.SockFilter)(unsafe.Pointer(&rawIns[0])),
-		}
-	}
-
-	return unix.SetsockoptSockFprog(int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog)
 }
 
 // listenLocal occupy local port and avoid system stack reply RST
