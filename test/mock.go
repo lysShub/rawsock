@@ -2,12 +2,16 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math"
 	"math/rand"
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,15 +19,13 @@ import (
 	"github.com/lysShub/relraw/internal/config"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
-	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 type MockRaw struct {
 	options
-	id string
-	t  require.TestingT
-
+	id            string
+	t             require.TestingT
 	proto         tcpip.TransportProtocolNumber
 	local, remote netip.AddrPort
 	ip            *relraw.IPStack
@@ -276,26 +278,7 @@ func (r *MockRaw) validChecksum(ip header.IPv4) {
 		return
 	}
 
-	require.True(r.t, ip.IsChecksumValid())
-
-	psoSum := header.PseudoHeaderChecksum(
-		ip.TransportProtocol(),
-		ip.SourceAddress(), ip.DestinationAddress(),
-		uint16(len(ip.Payload())),
-	)
-	sum1 := checksum.Checksum(ip.Payload(), 0)
-
-	var sum uint16
-	switch ip.TransportProtocol() {
-	case header.TCPProtocolNumber, header.UDPProtocolNumber:
-		sum = checksum.Combine(psoSum, sum1)
-	case header.ICMPv4ProtocolNumber, header.ICMPv6ProtocolNumber:
-		sum = sum1
-	default:
-		panic("")
-	}
-
-	require.Equal(r.t, uint16(0xffff), sum)
+	ValidIP(r.t, ip)
 }
 
 func (r *MockRaw) validAddr(ip header.IPv4, inbound bool) {
@@ -351,4 +334,56 @@ var defaultOptions = options{
 	validChecksum: false,
 	delay:         0,
 	pl:            0,
+}
+
+type mockTest struct{}
+
+var T = &mockTest{}
+
+var _ require.TestingT = (*mockTest)(nil)
+
+func (m *mockTest) Errorf(format string, args ...interface{}) {
+	str := fmt.Sprintf(format, args...)
+
+	hs := hs()
+
+	s := strings.Join([]string{hs, str}, "\n")
+	fmt.Println(s)
+	os.Exit(1)
+}
+
+func (m *mockTest) FailNow() {
+	panic("Fail")
+}
+
+func callers() []uintptr {
+	const depth = 32
+	var pcs [depth]uintptr
+	n := runtime.Callers(3+4, pcs[:])
+
+	return pcs[:n]
+}
+
+func hs() string {
+	st := callers()
+
+	var s strings.Builder
+
+	s.WriteByte('\n')
+	for _, f := range st {
+		pc := uintptr(f) - 1
+		fn := runtime.FuncForPC(pc)
+		if fn == nil {
+			s.WriteString("......")
+			s.WriteByte('\n')
+			continue
+		}
+		file, line := fn.FileLine(pc)
+		s.WriteString(file)
+		s.WriteByte(':')
+		s.WriteString(strconv.Itoa(line))
+		s.WriteByte('\n')
+	}
+
+	return s.String()
 }

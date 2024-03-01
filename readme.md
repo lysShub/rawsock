@@ -1,6 +1,7 @@
-# usable IP connect
+# raw socket
 
 
+todo:
+- test over MTU packet
+- apply more debug check points
 
-note: 
-1. 不支持loopback

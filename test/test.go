@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/netip"
 	"sync"
-	"testing"
 	"time"
 
 	"github.com/lysShub/relraw"
@@ -98,7 +97,7 @@ func BuildTCPSync(t require.TestingT, laddr, raddr netip.AddrPort) header.TCP {
 	return b
 }
 
-func ValidIP(t *testing.T, ip []byte) {
+func ValidIP(t require.TestingT, ip []byte) {
 	var ipheaer header.Network
 	switch header.IPVersion(ip) {
 	case 4:
@@ -136,7 +135,7 @@ func ValidIP(t *testing.T, ip []byte) {
 	}
 }
 
-func BuildRawTCP(t *testing.T, laddr, raddr netip.AddrPort, payload []byte) header.IPv4 {
+func BuildRawTCP(t require.TestingT, laddr, raddr netip.AddrPort, payload []byte) header.IPv4 {
 	require.True(t, laddr.Addr().Is4())
 
 	iptcp := header.IPv4MinimumSize + header.TCPMinimumSize

@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lysShub/relraw/test"
+	"github.com/lysShub/relraw/test/debug"
+
 	"github.com/lysShub/divert-go"
 	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/internal"
@@ -315,6 +318,10 @@ func (r *conn) Read(ip []byte) (n int, err error) {
 	n, err = r.raw.Recv(ip, nil)
 	if err == nil {
 		r.ipstack.UpdateInbound(ip[:n])
+
+		if debug.Debug {
+			test.ValidIP(test.T, ip[:n])
+		}
 	}
 	return n, err
 }
@@ -324,6 +331,10 @@ func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	n, err := r.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	if err != nil {
 		return err
+	}
+
+	if debug.Debug {
+		test.ValidIP(test.T, p.Data())
 	}
 
 	p.SetLen(n)
@@ -337,6 +348,10 @@ func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 }
 
 func (r *conn) Write(ip []byte) (n int, err error) {
+	if debug.Debug {
+		test.ValidIP(test.T, ip[:n])
+	}
+
 	r.ipstack.UpdateOutbound(ip)
 	return r.raw.Send(ip, outboundAddr)
 }
@@ -344,12 +359,20 @@ func (r *conn) Write(ip []byte) (n int, err error) {
 func (r *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	r.ipstack.AttachOutbound(p)
 
+	if debug.Debug {
+		test.ValidIP(test.T, p.Data())
+	}
+
 	// todo: ctx
 	_, err = r.raw.Send(p.Data(), outboundAddr)
 	return err
 }
 
 func (r *conn) Inject(ip []byte) (err error) {
+	if debug.Debug {
+		test.ValidIP(test.T, ip)
+	}
+
 	r.ipstack.UpdateInbound(ip)
 	_, err = r.raw.Send(ip, r.injectAddr)
 	return err
@@ -357,6 +380,11 @@ func (r *conn) Inject(ip []byte) (err error) {
 
 func (r *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	r.ipstack.AttachInbound(p)
+
+	if debug.Debug {
+		test.ValidIP(test.T, p.Data())
+	}
+
 	_, err = r.raw.Send(p.Data(), r.injectAddr)
 	return err
 }

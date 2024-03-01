@@ -184,3 +184,8 @@ func Test_Mock_RawConn(t *testing.T) {
 	})
 
 }
+
+func Test_MockTest(t *testing.T) {
+	err := io.EOF
+	require.NoError(T, err)
+}
