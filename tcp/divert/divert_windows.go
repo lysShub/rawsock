@@ -349,7 +349,7 @@ func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 
 func (r *conn) Write(ip []byte) (n int, err error) {
 	if debug.Debug {
-		test.ValidIP(test.T, ip[:n])
+		test.ValidIP(test.T, ip)
 	}
 
 	r.ipstack.UpdateOutbound(ip)
