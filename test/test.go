@@ -98,6 +98,44 @@ func BuildTCPSync(t require.TestingT, laddr, raddr netip.AddrPort) header.TCP {
 	return b
 }
 
+func ValidIP(t *testing.T, ip []byte) {
+	var ipheaer header.Network
+	switch header.IPVersion(ip) {
+	case 4:
+		ip := header.IPv4(ip)
+		require.True(t, ip.IsChecksumValid())
+		ipheaer = ip
+	case 6:
+		ipheaer = header.IPv6(ip)
+	default:
+	}
+
+	switch ipheaer.TransportProtocol() {
+	case header.TCPProtocolNumber:
+		tcp := header.TCP(ipheaer.Payload())
+		psum := header.PseudoHeaderChecksum(
+			ipheaer.TransportProtocol(),
+			ipheaer.SourceAddress(),
+			ipheaer.DestinationAddress(),
+			uint16(len(tcp)),
+		)
+		sum := checksum.Checksum(tcp, psum)
+		require.Equal(t, uint16(0xffff), sum)
+
+	case header.UDPProtocolNumber:
+		udp := header.UDP(ipheaer.Payload())
+		psum := header.PseudoHeaderChecksum(
+			ipheaer.TransportProtocol(),
+			ipheaer.SourceAddress(),
+			ipheaer.DestinationAddress(),
+			uint16(len(udp)),
+		)
+
+		sum := checksum.Checksum(udp, psum)
+		require.Equal(t, uint16(0xffff), sum)
+	}
+}
+
 func BuildRawTCP(t *testing.T, laddr, raddr netip.AddrPort, payload []byte) header.IPv4 {
 	require.True(t, laddr.Addr().Is4())
 

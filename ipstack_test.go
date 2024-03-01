@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lysShub/relraw"
+	"github.com/lysShub/relraw/internal/config/ipstack"
 	"github.com/lysShub/relraw/test"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
@@ -39,25 +40,17 @@ func init() {
 func Test_IP_Stack_TCP(t *testing.T) {
 
 	for _, suit := range suits {
-		for i := 0; i < 2; i++ {
+		for _, opts := range [][]ipstack.Option{
+			{relraw.UpdateChecksum, relraw.InitIPId(1234)},
+			{relraw.ReCalcChecksum, relraw.InitIPId(1234)},
+		} {
 
-			var err error
-			var s *relraw.IPStack
-			if i == 0 {
-				s, err = relraw.NewIPStack(
-					suit.src, suit.dst,
-					header.TCPProtocolNumber,
-					relraw.UpdateChecksum,
-				)
-				require.NoError(t, err)
-			} else {
-				s, err = relraw.NewIPStack(
-					suit.src, suit.dst,
-					header.TCPProtocolNumber,
-					relraw.ReCalcChecksum,
-				)
-				require.NoError(t, err)
-			}
+			s, err := relraw.NewIPStack(
+				suit.src, suit.dst,
+				header.TCPProtocolNumber,
+				opts...,
+			)
+			require.NoError(t, err)
 
 			var tcp = func() header.TCP {
 				var b = header.TCP(make([]byte, max(rand.Int()%1536, header.TCPMinimumSize)))
@@ -83,6 +76,7 @@ func Test_IP_Stack_TCP(t *testing.T) {
 			var network header.Network
 			if suit.src.Is4() {
 				network = header.IPv4(ip)
+				require.Equal(t, uint16(1234), header.IPv4(ip).ID())
 			} else {
 				network = header.IPv6(ip)
 			}
@@ -98,8 +92,8 @@ func Test_IP_Stack_TCP(t *testing.T) {
 			)
 
 			require.True(t, ok)
-
 		}
+
 	}
 
 }

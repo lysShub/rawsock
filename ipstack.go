@@ -2,8 +2,8 @@ package relraw
 
 import (
 	"fmt"
-	"math/rand"
 	"net/netip"
+	"sync/atomic"
 
 	"github.com/lysShub/relraw/internal/config/ipstack"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -22,6 +22,8 @@ type IPStack struct {
 
 	// pseudo header checksum without totalLen
 	psoSum1 uint16
+
+	ip4Id atomic.Uint32
 }
 
 // UpdateChecksum update tcp/udp checksum, the old
@@ -45,6 +47,12 @@ func NotCalcIPChecksum(o *ipstack.Options) {
 	o.CalcIPChecksum = false
 }
 
+func InitIPId(id uint16) ipstack.Option {
+	return func(o *ipstack.Options) {
+		o.InitID = id
+	}
+}
+
 func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, opts ...ipstack.Option) (*IPStack, error) {
 
 	switch proto {
@@ -65,6 +73,7 @@ func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, op
 		s.network = header.IPv4ProtocolNumber
 		s.in, s.psoSum1 = initHdr(raddr, laddr, proto)
 		s.out, s.psoSum1 = initHdr(laddr, raddr, proto)
+		s.ip4Id.Store(uint32(s.option.InitID) - 1)
 	} else {
 		s.network = header.IPv6ProtocolNumber
 		s.in, s.psoSum1 = initHdr6(raddr, laddr, proto)
@@ -128,7 +137,7 @@ func (i *IPStack) AttachOutbound(p *Packet) {
 }
 
 func (i *IPStack) calcTransportChecksum(ip []byte) {
-	psosum, p := i.attach(ip)
+	psosum, p := i.checksum(ip)
 
 	switch i.transport {
 	case header.TCPProtocolNumber:
@@ -164,11 +173,11 @@ func (i *IPStack) calcTransportChecksum(ip []byte) {
 	}
 }
 
-func (i *IPStack) attach(ip []byte) (uint16, []byte) {
+func (i *IPStack) checksum(ip []byte) (uint16, []byte) {
 	if i.network == header.IPv4ProtocolNumber {
 		iphdr := header.IPv4(ip)
 		iphdr.SetTotalLength(uint16(len(iphdr)))
-		iphdr.SetID(uint16(rand.Uint32()))
+		iphdr.SetID(uint16(i.ip4Id.Add(1)))
 		if i.option.CalcIPChecksum {
 			iphdr.SetChecksum(^iphdr.CalculateChecksum())
 		}
