@@ -109,18 +109,16 @@ func ValidIP(t require.TestingT, ip []byte) {
 	default:
 	}
 
+	pseudoSum1 := header.PseudoHeaderChecksum(
+		ipheaer.TransportProtocol(),
+		ipheaer.SourceAddress(),
+		ipheaer.DestinationAddress(),
+		0,
+	)
+
 	switch ipheaer.TransportProtocol() {
 	case header.TCPProtocolNumber:
-		tcp := header.TCP(ipheaer.Payload())
-		psum := header.PseudoHeaderChecksum(
-			ipheaer.TransportProtocol(),
-			ipheaer.SourceAddress(),
-			ipheaer.DestinationAddress(),
-			uint16(len(tcp)),
-		)
-		sum := checksum.Checksum(tcp, psum)
-		require.Equal(t, uint16(0xffff), sum)
-
+		ValidTCP(t, ipheaer.Payload(), pseudoSum1)
 	case header.UDPProtocolNumber:
 		udp := header.UDP(ipheaer.Payload())
 		psum := header.PseudoHeaderChecksum(
@@ -133,6 +131,12 @@ func ValidIP(t require.TestingT, ip []byte) {
 		sum := checksum.Checksum(udp, psum)
 		require.Equal(t, uint16(0xffff), sum)
 	}
+}
+
+func ValidTCP(t require.TestingT, tcp header.TCP, pseudoSum1 uint16) {
+	psum := checksum.Combine(pseudoSum1, uint16(len(tcp)))
+	sum := checksum.Checksum(tcp, psum)
+	require.Equal(t, uint16(0xffff), sum)
 }
 
 func BuildRawTCP(t require.TestingT, laddr, raddr netip.AddrPort, payload []byte) header.IPv4 {

@@ -20,6 +20,8 @@ import (
 	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/internal/config/ipstack"
 	"github.com/lysShub/relraw/tcp"
+	"github.com/lysShub/relraw/test"
+	"github.com/lysShub/relraw/test/debug"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
@@ -274,6 +276,10 @@ func (r *conn) Read(ip []byte) (n int, err error) {
 	n, err = r.raw.Read(ip)
 	if err == nil {
 		r.ipstack.UpdateInbound(ip[:n])
+
+		if debug.Debug {
+			test.ValidIP(test.T, ip[:n])
+		}
 	}
 	return n, err
 }
@@ -302,8 +308,12 @@ func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 			return err
 		}
 	}
-
 	p.SetLen(n)
+
+	if debug.Debug {
+		test.ValidIP(test.T, p.Data())
+	}
+
 	switch header.IPVersion(b) {
 	case 4:
 		p.SetHead(p.Head() + int(header.IPv4(b).HeaderLength()))
@@ -315,24 +325,35 @@ func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 
 func (r *conn) Write(ip []byte) (n int, err error) {
 	r.ipstack.UpdateOutbound(ip)
+	if debug.Debug {
+		test.ValidIP(test.T, ip)
+	}
 	return r.raw.Write(ip)
 }
 
 func (r *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	r.ipstack.AttachOutbound(p)
+	if debug.Debug {
+		test.ValidIP(test.T, p.Data())
+	}
 	_, err = r.raw.Write(p.Data())
 	return err
 }
 
 func (r *conn) Inject(ip []byte) (err error) {
 	r.ipstack.UpdateInbound(ip)
+	if debug.Debug {
+		test.ValidIP(test.T, ip)
+	}
 	_, err = r.raw.Write(ip)
 	return err
 }
 
 func (r *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	r.ipstack.AttachInbound(p)
-
+	if debug.Debug {
+		test.ValidIP(test.T, p.Data())
+	}
 	_, err = r.raw.Write(p.Data())
 	return err
 }
