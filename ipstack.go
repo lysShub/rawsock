@@ -2,6 +2,7 @@ package relraw
 
 import (
 	"fmt"
+	"math/rand"
 	"net/netip"
 	"sync/atomic"
 
@@ -10,6 +11,8 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
+
+// todo: statistics packet lose percent
 
 // build ip header
 type IPStack struct {
@@ -23,7 +26,9 @@ type IPStack struct {
 	// pseudo header checksum without totalLen
 	psoSum1 uint16
 
-	ip4Id atomic.Uint32
+	// next outbound/inbound ip4 id
+	outId atomic.Uint32
+	inId  atomic.Uint32
 }
 
 // UpdateChecksum update tcp/udp checksum, the old
@@ -47,12 +52,6 @@ func NotCalcIPChecksum(o *ipstack.Options) {
 	o.CalcIPChecksum = false
 }
 
-func InitIPId(id uint16) ipstack.Option {
-	return func(o *ipstack.Options) {
-		o.InitID = id
-	}
-}
-
 func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, opts ...ipstack.Option) (*IPStack, error) {
 
 	switch proto {
@@ -73,7 +72,8 @@ func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, op
 		s.network = header.IPv4ProtocolNumber
 		s.in, s.psoSum1 = initHdr(raddr, laddr, proto)
 		s.out, s.psoSum1 = initHdr(laddr, raddr, proto)
-		s.ip4Id.Store(uint32(s.option.InitID) - 1)
+		s.outId.Store(rand.Uint32())
+		s.inId.Store(rand.Uint32())
 	} else {
 		s.network = header.IPv6ProtocolNumber
 		s.in, s.psoSum1 = initHdr6(raddr, laddr, proto)
@@ -131,9 +131,39 @@ func (i *IPStack) AttachInbound(p *Packet) {
 	i.calcTransportChecksum(p.Data())
 }
 
+func (i *IPStack) UpdateInbound(ip header.IPv4) {
+	if i.network == header.IPv4ProtocolNumber {
+
+		old, new := ip.ID(), uint16(i.inId.Add(1))
+		if old != new {
+			ip.SetID(new)
+
+			sum := checksum.Combine(^ip.Checksum(), ^old)
+			sum = checksum.Combine(sum, new)
+			ip.SetChecksum(^sum)
+		}
+	}
+}
+
+// AttachOutbound attach a ip header for outbound address
 func (i *IPStack) AttachOutbound(p *Packet) {
 	p.Attach(i.out)
 	i.calcTransportChecksum(p.Data())
+}
+
+// UpdateOutbound update outbound ip id field
+func (i *IPStack) UpdateOutbound(ip header.IPv4) {
+	if i.network == header.IPv4ProtocolNumber {
+
+		old, new := ip.ID(), uint16(i.outId.Add(1))
+		if old != new {
+			ip.SetID(new)
+
+			sum := checksum.Combine(^ip.Checksum(), ^old)
+			sum = checksum.Combine(sum, new)
+			ip.SetChecksum(^sum)
+		}
+	}
 }
 
 func (i *IPStack) calcTransportChecksum(ip []byte) {
@@ -177,7 +207,7 @@ func (i *IPStack) checksum(ip []byte) (uint16, []byte) {
 	if i.network == header.IPv4ProtocolNumber {
 		iphdr := header.IPv4(ip)
 		iphdr.SetTotalLength(uint16(len(iphdr)))
-		iphdr.SetID(uint16(i.ip4Id.Add(1)))
+		iphdr.SetID(uint16(i.outId.Add(1)))
 		if i.option.CalcIPChecksum {
 			iphdr.SetChecksum(^iphdr.CalculateChecksum())
 		}

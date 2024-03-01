@@ -1,13 +1,10 @@
 package ipstack
 
-import "math/rand"
-
 type Option func(*Options)
 
 type Options struct {
 	CalcIPChecksum bool
 	Checksum       uint8
-	InitID         uint16
 }
 
 func (os Options) Unmarshal() Option {
@@ -20,7 +17,6 @@ func (os Options) Unmarshal() Option {
 var Default = Options{
 	Checksum:       ReCalcChecksum,
 	CalcIPChecksum: true,
-	InitID:         uint16(rand.Uint32()),
 }
 
 const (

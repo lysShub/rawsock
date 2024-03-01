@@ -41,8 +41,8 @@ func Test_IP_Stack_TCP(t *testing.T) {
 
 	for _, suit := range suits {
 		for _, opts := range [][]ipstack.Option{
-			{relraw.UpdateChecksum, relraw.InitIPId(1234)},
-			{relraw.ReCalcChecksum, relraw.InitIPId(1234)},
+			{relraw.UpdateChecksum},
+			{relraw.ReCalcChecksum},
 		} {
 
 			s, err := relraw.NewIPStack(
@@ -76,7 +76,6 @@ func Test_IP_Stack_TCP(t *testing.T) {
 			var network header.Network
 			if suit.src.Is4() {
 				network = header.IPv4(ip)
-				require.Equal(t, uint16(1234), header.IPv4(ip).ID())
 			} else {
 				network = header.IPv6(ip)
 			}

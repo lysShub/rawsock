@@ -313,6 +313,9 @@ func (r *conn) init(priority int16, ipOpts ipstack.Options) (err error) {
 
 func (r *conn) Read(ip []byte) (n int, err error) {
 	n, err = r.raw.Recv(ip, nil)
+	if err == nil {
+		r.ipstack.UpdateInbound(ip[:n])
+	}
 	return n, err
 }
 
@@ -334,11 +337,12 @@ func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 }
 
 func (r *conn) Write(ip []byte) (n int, err error) {
+	r.ipstack.UpdateOutbound(ip)
 	return r.raw.Send(ip, outboundAddr)
 }
 
 func (r *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
-	r.ipstack.AttachInbound(p)
+	r.ipstack.AttachOutbound(p)
 
 	// todo: ctx
 	_, err = r.raw.Send(p.Data(), outboundAddr)
@@ -346,6 +350,7 @@ func (r *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 }
 
 func (r *conn) Inject(ip []byte) (err error) {
+	r.ipstack.UpdateInbound(ip)
 	_, err = r.raw.Send(ip, r.injectAddr)
 	return err
 }

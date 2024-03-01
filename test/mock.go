@@ -144,6 +144,8 @@ func (r *MockRaw) Read(ip []byte) (n int, err error) {
 	if n < len(b) {
 		return 0, io.ErrShortBuffer
 	}
+
+	r.ip.UpdateInbound(ip[:n])
 	return n, nil
 }
 func (r *MockRaw) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
@@ -184,6 +186,8 @@ func (r *MockRaw) Write(ip []byte) (n int, err error) {
 
 	tmp := make([]byte, len(ip))
 	copy(tmp, ip)
+
+	r.ip.UpdateOutbound(tmp)
 	r.out <- tmp
 
 	return len(ip), nil
@@ -222,6 +226,8 @@ func (r *MockRaw) Inject(ip []byte) (err error) {
 			err = os.ErrClosed
 		}
 	}()
+
+	r.ip.UpdateInbound(tmp)
 	r.in <- tmp
 	return nil
 }
