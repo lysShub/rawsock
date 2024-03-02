@@ -14,7 +14,7 @@ import (
 func Test_BindLocal(t *testing.T) {
 
 	t.Run("UsedPort/normal", func(t *testing.T) {
-		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+		var addr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
 
 		fd1, _, err := BindLocal(addr, false)
 		require.NoError(t, err)
@@ -27,7 +27,7 @@ func Test_BindLocal(t *testing.T) {
 	})
 
 	t.Run("UsedPort/repeat", func(t *testing.T) {
-		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+		var addr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
 
 		fd1, _, err := BindLocal(addr, false)
 		require.NoError(t, err)
@@ -40,7 +40,7 @@ func Test_BindLocal(t *testing.T) {
 
 	t.Run("UsedPort/not-used", func(t *testing.T) {
 		port := test.RandPort()
-		var addr = netip.AddrPortFrom(test.LocIP, port)
+		var addr = netip.AddrPortFrom(test.LocIP(), port)
 
 		fd1, _, err := BindLocal(addr, true)
 		require.True(t, errors.Is(err, config.ErrNotUsedPort(port)))

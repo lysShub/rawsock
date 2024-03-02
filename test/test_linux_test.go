@@ -12,8 +12,8 @@ import (
 )
 
 func Test_Create_Tuns(t *testing.T) {
-	tt, err := test.CreateTunTuple()
-	require.NoError(t, err)
+	tt := test.CreateTunTuple(t)
+	defer tt.Close()
 
 	var (
 		saddr = netip.AddrPortFrom(tt.Addr1, test.RandPort())

@@ -80,7 +80,10 @@ func (t *TunTuple) Close() error {
 func CreateTunTuple() (*TunTuple, error) {
 	wintun.MustLoad(wintun.DLL)
 
-	var addrs = tunTupleAddrsGener()
+	var addrs = []netip.Addr{
+		netip.AddrFrom4([4]byte{10, 0, 1, 123}),
+		netip.AddrFrom4([4]byte{10, 0, 2, 123}),
+	}
 	var tt = &TunTuple{
 		Addr1: addrs[0],
 		Addr2: addrs[1],

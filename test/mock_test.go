@@ -22,7 +22,7 @@ func Test_Mock_RawConn(t *testing.T) {
 
 		rawClient, rawServer := NewMockRaw(
 			t, header.TCPProtocolNumber,
-			netip.AddrPortFrom(LocIP, RandPort()), netip.AddrPortFrom(LocIP, RandPort()),
+			netip.AddrPortFrom(LocIP(), RandPort()), netip.AddrPortFrom(LocIP(), RandPort()),
 			PacketLoss(pl),
 		)
 		defer rawClient.Close()
@@ -45,7 +45,7 @@ func Test_Mock_RawConn(t *testing.T) {
 	t.Run("MockRaw/read-write", func(t *testing.T) {
 		rawClient, rawServer := NewMockRaw(
 			t, header.TCPProtocolNumber,
-			netip.AddrPortFrom(LocIP, RandPort()), netip.AddrPortFrom(LocIP, RandPort()),
+			netip.AddrPortFrom(LocIP(), RandPort()), netip.AddrPortFrom(LocIP(), RandPort()),
 		)
 		defer rawClient.Close()
 		defer rawServer.Close()
@@ -65,7 +65,7 @@ func Test_Mock_RawConn(t *testing.T) {
 	t.Run("MockRaw/Write/memcpy", func(t *testing.T) {
 		rawClient, rawServer := NewMockRaw(
 			t, header.TCPProtocolNumber,
-			netip.AddrPortFrom(LocIP, RandPort()), netip.AddrPortFrom(LocIP, RandPort()),
+			netip.AddrPortFrom(LocIP(), RandPort()), netip.AddrPortFrom(LocIP(), RandPort()),
 		)
 		defer rawClient.Close()
 		defer rawServer.Close()
@@ -85,7 +85,7 @@ func Test_Mock_RawConn(t *testing.T) {
 	t.Run("MockRaw/WriteCtx/memcpy", func(t *testing.T) {
 		rawClient, rawServer := NewMockRaw(
 			t, header.TCPProtocolNumber,
-			netip.AddrPortFrom(LocIP, RandPort()), netip.AddrPortFrom(LocIP, RandPort()),
+			netip.AddrPortFrom(LocIP(), RandPort()), netip.AddrPortFrom(LocIP(), RandPort()),
 		)
 		defer rawClient.Close()
 		defer rawServer.Close()
@@ -112,8 +112,8 @@ func Test_Mock_RawConn(t *testing.T) {
 
 	t.Run("MockRaw/ustack", func(t *testing.T) {
 		var (
-			saddr = netip.AddrPortFrom(LocIP, RandPort())
-			caddr = netip.AddrPortFrom(LocIP, RandPort())
+			saddr = netip.AddrPortFrom(LocIP(), RandPort())
+			caddr = netip.AddrPortFrom(LocIP(), RandPort())
 
 			seed int64 = time.Now().UnixNano()
 			r          = rand.New(rand.NewSource(seed))
@@ -187,5 +187,5 @@ func Test_Mock_RawConn(t *testing.T) {
 
 func Test_MockTest(t *testing.T) {
 	err := io.EOF
-	require.NoError(T, err)
+	require.NoError(T(), err)
 }

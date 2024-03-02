@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"sync"
 	"time"
 
 	"github.com/lysShub/relraw"
@@ -201,30 +200,10 @@ func RandIP() netip.Addr {
 	return netip.AddrFrom4([4]byte(b))
 }
 
-var LocIP = func() netip.Addr {
+func LocIP() netip.Addr {
 	c, _ := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 53})
 	return netip.MustParseAddrPort(c.LocalAddr().String()).Addr()
-}()
-
-var tunTupleAddrsGener = func() func() []netip.Addr {
-	var mu sync.RWMutex
-	var addr = netip.AddrFrom4([4]byte{10, 3, 3, 0})
-
-	return func() []netip.Addr {
-		mu.Lock()
-		defer mu.Unlock()
-
-		var r = []netip.Addr{}
-		for len(r) < 2 {
-			addr = addr.Next()
-			for tail := addr.As4()[3]; tail == 0 || tail == 0xff; {
-				addr = addr.Next()
-			}
-			r = append(r, addr)
-		}
-		return r
-	}
-}()
+}
 
 func TCPAddr(a netip.AddrPort) *net.TCPAddr {
 	return &net.TCPAddr{IP: a.Addr().AsSlice(), Port: int(a.Port())}

@@ -15,7 +15,7 @@ import (
 
 func Test_ListenLocal(t *testing.T) {
 	t.Run("mutiple-use", func(t *testing.T) {
-		addr := netip.AddrPortFrom(test.LocIP, test.RandPort())
+		addr := netip.AddrPortFrom(test.LocIP(), test.RandPort())
 
 		l1, addr1, err := ListenLocal(addr, false)
 		require.NoError(t, err)
@@ -29,7 +29,7 @@ func Test_ListenLocal(t *testing.T) {
 	})
 
 	t.Run("mutiple-use-not-used", func(t *testing.T) {
-		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+		var addr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
 
 		l, _, err := ListenLocal(addr, true)
 		require.True(t, errors.Is(err, config.ErrNotUsedPort(addr.Port())))
@@ -37,7 +37,7 @@ func Test_ListenLocal(t *testing.T) {
 	})
 
 	t.Run("mutiple-use-after-used", func(t *testing.T) {
-		var addr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+		var addr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
 
 		l1, _, err := ListenLocal(addr, false)
 		require.NoError(t, err)
@@ -70,7 +70,7 @@ func Test_ListenLocal(t *testing.T) {
 	})
 
 	t.Run("avoid-send-SYN", func(t *testing.T) {
-		addr := netip.AddrPortFrom(test.LocIP, test.RandPort())
+		addr := netip.AddrPortFrom(test.LocIP(), test.RandPort())
 
 		l, _, err := ListenLocal(addr, false)
 		require.NoError(t, err)

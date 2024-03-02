@@ -9,9 +9,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"runtime"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -338,52 +335,18 @@ var defaultOptions = options{
 
 type mockTest struct{}
 
-var T = &mockTest{}
+func T() *mockTest { return &mockTest{} }
 
 var _ require.TestingT = (*mockTest)(nil)
 
 func (m *mockTest) Errorf(format string, args ...interface{}) {
-	str := fmt.Sprintf(format, args...)
+	fmt.Printf(format, args...)
+	fmt.Println()
 
-	hs := hs()
-
-	s := strings.Join([]string{hs, str}, "\n")
-	fmt.Println(s)
 	os.Exit(1)
 }
 
 func (m *mockTest) FailNow() {
-	panic("Fail")
-}
-
-func callers() []uintptr {
-	const depth = 32
-	var pcs [depth]uintptr
-	n := runtime.Callers(3+4, pcs[:])
-
-	return pcs[:n]
-}
-
-func hs() string {
-	st := callers()
-
-	var s strings.Builder
-
-	s.WriteByte('\n')
-	for _, f := range st {
-		pc := uintptr(f) - 1
-		fn := runtime.FuncForPC(pc)
-		if fn == nil {
-			s.WriteString("......")
-			s.WriteByte('\n')
-			continue
-		}
-		file, line := fn.FileLine(pc)
-		s.WriteString(file)
-		s.WriteByte(':')
-		s.WriteString(strconv.Itoa(line))
-		s.WriteByte('\n')
-	}
-
-	return s.String()
+	fmt.Println("Fail")
+	os.Exit(1)
 }

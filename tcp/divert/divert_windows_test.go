@@ -10,6 +10,7 @@ import (
 
 	"github.com/lysShub/divert-go"
 	"github.com/lysShub/relraw/test"
+	"github.com/lysShub/relraw/test/debug"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -29,9 +30,13 @@ func Test_Listen(t *testing.T) {
 func Test_Connect(t *testing.T) {
 
 	t.Run("connect/loopback", func(t *testing.T) {
+		if debug.Debug() {
+			t.Skip("debug mode")
+		}
+
 		var (
-			saddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
-			caddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+			saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+			caddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
 		)
 
 		go func() {

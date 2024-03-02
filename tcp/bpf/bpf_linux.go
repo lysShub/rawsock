@@ -277,8 +277,8 @@ func (r *conn) Read(ip []byte) (n int, err error) {
 	if err == nil {
 		r.ipstack.UpdateInbound(ip[:n])
 
-		if debug.Debug {
-			test.ValidIP(test.T, ip[:n])
+		if debug.Debug() {
+			test.ValidIP(test.T(), ip[:n])
 		}
 	}
 	return n, err
@@ -310,8 +310,8 @@ func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	}
 	p.SetLen(n)
 
-	if debug.Debug {
-		test.ValidIP(test.T, p.Data())
+	if debug.Debug() {
+		test.ValidIP(test.T(), p.Data())
 	}
 
 	switch header.IPVersion(b) {
@@ -325,16 +325,16 @@ func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 
 func (r *conn) Write(ip []byte) (n int, err error) {
 	r.ipstack.UpdateOutbound(ip)
-	if debug.Debug {
-		test.ValidIP(test.T, ip)
+	if debug.Debug() {
+		test.ValidIP(test.T(), ip)
 	}
 	return r.raw.Write(ip)
 }
 
 func (r *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	r.ipstack.AttachOutbound(p)
-	if debug.Debug {
-		test.ValidIP(test.T, p.Data())
+	if debug.Debug() {
+		test.ValidIP(test.T(), p.Data())
 	}
 	_, err = r.raw.Write(p.Data())
 	return err
@@ -342,8 +342,8 @@ func (r *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 
 func (r *conn) Inject(ip []byte) (err error) {
 	r.ipstack.UpdateInbound(ip)
-	if debug.Debug {
-		test.ValidIP(test.T, ip)
+	if debug.Debug() {
+		test.ValidIP(test.T(), ip)
 	}
 	_, err = r.raw.Write(ip)
 	return err
@@ -351,8 +351,8 @@ func (r *conn) Inject(ip []byte) (err error) {
 
 func (r *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	r.ipstack.AttachInbound(p)
-	if debug.Debug {
-		test.ValidIP(test.T, p.Data())
+	if debug.Debug() {
+		test.ValidIP(test.T(), p.Data())
 	}
 	_, err = r.raw.Write(p.Data())
 	return err

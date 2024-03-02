@@ -138,3 +138,15 @@ func (p *Packet) AllocTail(tail int) bool {
 		return false
 	}
 }
+
+func (p *Packet) Copy() *Packet {
+	n := cap(p.b)
+
+	var c = &Packet{
+		b: make([]byte, len(p.b), n),
+		i: p.i,
+	}
+	copy(c.b[:n], p.b[:n])
+
+	return c
+}

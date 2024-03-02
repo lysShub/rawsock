@@ -3,4 +3,6 @@
 
 package debug
 
-const Debug = true
+const debug = true
+
+func Debug() bool { return debug }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/test"
+	"github.com/lysShub/relraw/test/debug"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -21,7 +22,7 @@ import (
 func Test_Listen(t *testing.T) {
 
 	t.Run("accept-once", func(t *testing.T) {
-		addr := netip.AddrPortFrom(test.LocIP, test.RandPort())
+		addr := netip.AddrPortFrom(test.LocIP(), test.RandPort())
 
 		var cnt atomic.Uint32
 		go func() {
@@ -39,7 +40,7 @@ func Test_Listen(t *testing.T) {
 		time.Sleep(time.Second)
 
 		go func() {
-			conn, err := net.DialTCP("tcp", nil, &net.TCPAddr{IP: test.LocIP.AsSlice(), Port: int(addr.Port())})
+			conn, err := net.DialTCP("tcp", nil, &net.TCPAddr{IP: test.LocIP().AsSlice(), Port: int(addr.Port())})
 			fmt.Println(conn, err)
 		}()
 
@@ -50,11 +51,14 @@ func Test_Listen(t *testing.T) {
 }
 
 func Test_Connect(t *testing.T) {
-
 	t.Run("loopback", func(t *testing.T) {
+		if debug.Debug() {
+			t.Skip("debug mode") // todo: maybe TSO
+		}
+
 		var (
-			caddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
-			saddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+			caddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+			saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
 		)
 
 		// todo: add noise
@@ -100,8 +104,7 @@ func Test_Connect(t *testing.T) {
 	})
 
 	t.Run("nics", func(t *testing.T) {
-		tt, err := test.CreateTunTuple()
-		require.NoError(t, err)
+		tt := test.CreateTunTuple(t)
 		var (
 			saddr = netip.AddrPortFrom(tt.Addr1, test.RandPort())
 			caddr = netip.AddrPortFrom(tt.Addr2, test.RandPort())
@@ -156,8 +159,8 @@ func Test_Connect(t *testing.T) {
 func Test_Recv(t *testing.T) {
 	t.Run("RecvCtx/cancel", func(t *testing.T) {
 		var (
-			caddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
-			saddr = netip.AddrPortFrom(test.LocIP, test.RandPort())
+			caddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+			saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
 		)
 
 		const delay = time.Millisecond * 100
