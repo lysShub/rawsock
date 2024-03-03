@@ -32,6 +32,20 @@ func Test_Packet_Attach(t *testing.T) {
 		require.Equal(t, defaulfHead, p.Head())
 	})
 
+	t.Run("Attach/overflow3", func(t *testing.T) {
+		data := make([]byte, 3, 1024)
+		data[2] = 55
+		p := ToPacket(2, data)
+		oldTail := p.Tail()
+
+		p.Attach([]byte{1, 2, 3})
+
+		b := p.Data()
+		require.Equal(t, []byte{1, 2, 3, 55}, b)
+		require.Equal(t, max(oldTail, defaulfTail), cap(b)-len(b))
+		require.Equal(t, defaulfHead, p.Head())
+	})
+
 	t.Run("Attach/align", func(t *testing.T) {
 		p := NewPacket(2, 1)
 		p.Attach([]byte{1, 2})

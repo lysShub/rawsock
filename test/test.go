@@ -257,6 +257,34 @@ func NewUstack(t require.TestingT, addr netip.Addr, handleLocal bool) *ustack {
 	return u
 }
 
+func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int) {
+	var buf = make(chan []byte, 64)
+	go func() {
+		for i := 0; i < size; {
+			b := make([]byte, min(64, size-i))
+			s.Read(b)
+
+			n, err := conn.Write(b)
+			require.NoError(t, err)
+			require.Equal(t, len(b), n)
+
+			buf <- b
+			i += len(b)
+		}
+	}()
+
+	for i := 0; i < size; i++ {
+		var b = make([]byte, 64)
+
+		n, err := conn.Read(b)
+		require.NoError(t, err)
+
+		exp := <-buf
+		require.Equal(t, exp, b[:n])
+		i += n
+	}
+}
+
 func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw relraw.RawConn) {
 	var mtu = 1536
 	go func() {

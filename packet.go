@@ -68,7 +68,7 @@ func (p *Packet) Attach(b []byte) {
 		p.i -= copy(p.b[delta:], b)
 	} else {
 		n := len(p.b) + defaulfHead - delta
-		tmp := make([]byte, n, n+defaulfTail)
+		tmp := make([]byte, n, n+max(p.Tail(), defaulfTail))
 
 		i := copy(tmp[defaulfHead:], b)
 		copy(tmp[defaulfHead+i:], p.Data())
