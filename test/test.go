@@ -306,7 +306,7 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw re
 
 			// recover tcp to ip packet
 			ip.SetHead(0)
-			sum(ip.Data()) // todo: TX?
+			sum(ip.Data()) // todo: TSO?
 
 			// iphdr := header.IPv4(ip.Bytes())
 			// tcphdr := header.TCP(iphdr.Payload())
