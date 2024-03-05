@@ -14,7 +14,7 @@ func Test_ValidPingPongConn(t *testing.T) {
 	var (
 		seed = time.Now().UnixNano()
 		r    = rand.New(rand.NewSource(seed))
-		N    = 0xff
+		N    = 0xffff
 	)
 	t.Log("seed", seed)
 

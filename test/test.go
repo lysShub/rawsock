@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"io"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -274,13 +275,16 @@ func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int
 	}()
 
 	for i := 0; i < size; i++ {
-		var b = make([]byte, 64)
-
-		n, err := conn.Read(b)
-		require.NoError(t, err)
-
 		exp := <-buf
-		require.Equal(t, exp, b[:n])
+
+		var b = make([]byte, len(exp))
+
+		n, err := io.ReadFull(conn, b)
+		require.NoError(t, err)
+		require.Equal(t, len(exp), n)
+
+		require.Equal(t, exp, b)
+
 		i += n
 	}
 }
