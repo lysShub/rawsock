@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"net/netip"
@@ -26,7 +27,7 @@ func (t *TunTuple) start() error {
 
 func (t *TunTuple) srv(self, peer *wintun.Adapter, peerAddr netip.Addr) {
 	for t.statue.Load() == 0 {
-		p, err := self.ReceivePacket()
+		p, err := self.Receive(context.Background())
 		if err != nil {
 			panic(err)
 		}
@@ -51,13 +52,13 @@ func (t *TunTuple) srv(self, peer *wintun.Adapter, peerAddr netip.Addr) {
 				// 	)
 				// }
 
-				np, err := peer.AllocateSendPacket(uint32(len(p)))
+				np, err := peer.AllocPacket(uint32(len(p)))
 				if err != nil {
 					panic(err)
 				}
 				copy(np, p)
 
-				if err := peer.SendPacket(np); err != nil {
+				if err := peer.Send(np); err != nil {
 					panic(err)
 				}
 			}

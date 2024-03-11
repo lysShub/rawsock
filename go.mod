@@ -3,7 +3,7 @@ module github.com/lysShub/relraw
 go 1.21
 
 require (
-	github.com/lysShub/divert-go v0.0.0-20240229084335-43e1fa8ed87b
+	github.com/lysShub/divert-go v0.0.0-20240311102940-fad389ab4dae
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/net v0.20.0
 	golang.org/x/sys v0.16.0
@@ -11,9 +11,7 @@ require (
 )
 
 require (
-	github.com/ebitengine/purego v0.5.1 // indirect
-	github.com/lysShub/dll-go v0.0.0-20240131092034-3f09ae5eff72 // indirect
-	github.com/lysShub/wintun-go v0.0.0-20240131112415-8f3bf638af49
+	github.com/lysShub/wintun-go v0.0.0-20240311102803-07195f507e37
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
 )
 

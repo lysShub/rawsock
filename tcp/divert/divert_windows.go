@@ -45,7 +45,7 @@ type listener struct {
 
 	tcp windows.Handle
 
-	raw             *divert.Divert
+	raw             *divert.Handle
 	minIPPacketSize int
 
 	// priority int16
@@ -86,7 +86,7 @@ func Listen(locAddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 		)
 	}
 
-	if l.raw, err = divert.Open(filter, divert.NETWORK, l.cfg.DivertPriorty, divert.READ_ONLY); err != nil {
+	if l.raw, err = divert.Open(filter, divert.Network, l.cfg.DivertPriorty, divert.ReadOnly); err != nil {
 		l.Close()
 		return nil, err
 	}
@@ -217,7 +217,7 @@ type conn struct {
 
 	tcp windows.Handle
 
-	raw *divert.Divert
+	raw *divert.Handle
 
 	injectAddr *divert.Address
 
@@ -301,7 +301,7 @@ func (r *conn) init(priority int16, ipOpts ipstack.Options) (err error) {
 		)
 	}
 
-	if r.raw, err = divert.Open(filter, divert.NETWORK, priority, 0); err != nil {
+	if r.raw, err = divert.Open(filter, divert.Network, priority, 0); err != nil {
 		r.Close()
 		return err
 	}
