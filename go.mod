@@ -3,6 +3,7 @@ module github.com/lysShub/relraw
 go 1.21
 
 require (
+	github.com/google/gopacket v1.1.19
 	github.com/lysShub/divert-go v0.0.0-20240311102940-fad389ab4dae
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/net v0.20.0
