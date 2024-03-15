@@ -60,6 +60,10 @@ func (p *Packet) Len() int { return len(p.b) - p.i }
 // Tail tail section size
 func (p *Packet) Tail() int { return cap(p.b) - len(p.b) }
 
+func (p *Packet) Cap() int {
+	return p.Len() + p.Tail()
+}
+
 // Attach attach b ahead data-section, use head-section firstly, if head section too short,
 // will re-alloc memory.
 func (p *Packet) Attach(b []byte) {

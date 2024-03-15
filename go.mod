@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	github.com/google/gopacket v1.1.19
-	github.com/lysShub/divert-go v0.0.0-20240311102940-fad389ab4dae
+	github.com/lysShub/divert-go v0.0.0-20240313084012-1361fa303219
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/net v0.20.0
 	golang.org/x/sys v0.16.0

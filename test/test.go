@@ -98,33 +98,33 @@ func BuildTCPSync(t require.TestingT, laddr, raddr netip.AddrPort) header.TCP {
 }
 
 func ValidIP(t require.TestingT, ip []byte) {
-	var ipheaer header.Network
+	var ipheader header.Network
 	switch header.IPVersion(ip) {
 	case 4:
 		ip := header.IPv4(ip)
 		require.True(t, ip.IsChecksumValid())
-		ipheaer = ip
+		ipheader = ip
 	case 6:
-		ipheaer = header.IPv6(ip)
+		ipheader = header.IPv6(ip)
 	default:
 	}
 
 	pseudoSum1 := header.PseudoHeaderChecksum(
-		ipheaer.TransportProtocol(),
-		ipheaer.SourceAddress(),
-		ipheaer.DestinationAddress(),
+		ipheader.TransportProtocol(),
+		ipheader.SourceAddress(),
+		ipheader.DestinationAddress(),
 		0,
 	)
 
-	switch ipheaer.TransportProtocol() {
+	switch ipheader.TransportProtocol() {
 	case header.TCPProtocolNumber:
-		ValidTCP(t, ipheaer.Payload(), pseudoSum1)
+		ValidTCP(t, ipheader.Payload(), pseudoSum1)
 	case header.UDPProtocolNumber:
-		udp := header.UDP(ipheaer.Payload())
+		udp := header.UDP(ipheader.Payload())
 		psum := header.PseudoHeaderChecksum(
-			ipheaer.TransportProtocol(),
-			ipheaer.SourceAddress(),
-			ipheaer.DestinationAddress(),
+			ipheader.TransportProtocol(),
+			ipheader.SourceAddress(),
+			ipheader.DestinationAddress(),
 			uint16(len(udp)),
 		)
 
