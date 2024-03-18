@@ -3,13 +3,15 @@ package divert
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/lysShub/divert-go"
 	"github.com/lysShub/relraw"
@@ -51,7 +53,7 @@ type listener struct {
 	// AddrPort:ISN
 	conns map[netip.AddrPort]uint32
 
-	closedConns   []internal.ClosedConnInfo
+	closedConns   []tcp.ClosedConnInfo
 	closedConnsMu sync.RWMutex
 }
 
@@ -100,15 +102,18 @@ func Priority(p int16) relraw.Option {
 }
 
 func (l *listener) Close() error {
-	var errs []error
-
+	var err error
 	if l.tcp != 0 {
-		errs = append(errs, windows.Close(l.tcp))
+		if e := windows.Close(l.tcp); e != nil {
+			err = e
+		}
 	}
 	if l.raw != nil {
-		errs = append(errs, l.raw.Close())
+		if e := l.raw.Close(); err != nil {
+			err = e
+		}
 	}
-	return errors.Join(errs...)
+	return err
 }
 
 func (l *listener) Addr() netip.AddrPort { return l.addr }
@@ -158,7 +163,7 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 				l.deleteConn,
 			)
 
-			return conn, conn.init(l.cfg.DivertPriorty+1, l.cfg.IPStackCfg)
+			return conn, conn.init(l.cfg.DivertPriorty+1, l.cfg.CompleteCheck, l.cfg.IPStackCfg)
 			// todo: inject P1
 		}
 	}
@@ -192,7 +197,7 @@ func (l *listener) deleteConn(raddr netip.AddrPort, isn uint32) error {
 
 	l.closedConns = append(
 		l.closedConns,
-		internal.ClosedConnInfo{
+		tcp.ClosedConnInfo{
 			DeleteAt: time.Now(),
 			Raddr:    raddr,
 			ISN:      isn,
@@ -212,6 +217,7 @@ type conn struct {
 	laddr, raddr netip.AddrPort
 	isn          uint32
 	loopback     bool
+	complete     bool
 
 	tcp windows.Handle
 
@@ -264,7 +270,7 @@ func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) 
 	)
 	c.tcp = tcp
 
-	return c, c.init(cfg.DivertPriorty, cfg.IPStackCfg)
+	return c, c.init(cfg.DivertPriorty, cfg.CompleteCheck, cfg.IPStackCfg)
 }
 
 func newConnect(laddr, raddr netip.AddrPort, isn uint32, loopback bool, ifIdx int, closeCall tcp.CloseCallback) *conn {
@@ -283,48 +289,56 @@ func newConnect(laddr, raddr netip.AddrPort, isn uint32, loopback bool, ifIdx in
 	return conn
 }
 
-func (r *conn) init(priority int16, ipOpts ipstack.Options) (err error) {
+func (c *conn) init(priority int16, complete bool, ipOpts *ipstack.Options) (err error) {
 	var filter string
-	if r.loopback {
+	if c.loopback {
 		// loopback recv as outbound packet, so raddr is localAddr laddr is remoteAddr
 		filter = fmt.Sprintf(
 			// outbound and
 			"tcp and localPort=%d and localAddr=%s and remotePort=%d and remoteAddr=%s",
-			r.raddr.Port(), r.raddr.Addr().String(), r.laddr.Port(), r.laddr.Addr().String(),
+			c.raddr.Port(), c.raddr.Addr().String(), c.laddr.Port(), c.laddr.Addr().String(),
 		)
 	} else {
 		filter = fmt.Sprintf(
 			"tcp and localPort=%d and localAddr=%s and remotePort=%d and remoteAddr=%s",
-			r.laddr.Port(), r.laddr.Addr().String(), r.raddr.Port(), r.raddr.Addr().String(),
+			c.laddr.Port(), c.laddr.Addr().String(), c.raddr.Port(), c.raddr.Addr().String(),
 		)
 	}
 
-	if r.raw, err = divert.Open(filter, divert.Network, priority, 0); err != nil {
-		r.Close()
+	if c.raw, err = divert.Open(filter, divert.Network, priority, 0); err != nil {
+		c.Close()
 		return err
 	}
 
-	r.ipstack, err = relraw.NewIPStack(
-		r.laddr.Addr(), r.raddr.Addr(),
+	if c.ipstack, err = relraw.NewIPStack(
+		c.laddr.Addr(), c.raddr.Addr(),
 		header.TCPProtocolNumber,
 		ipOpts.Unmarshal(),
-	)
-	return err
+	); err != nil {
+		return err
+	}
+
+	c.complete = complete
+	return nil
 }
 
-func (r *conn) Read(ip []byte) (n int, err error) {
-	n, err = r.raw.Recv(ip, nil)
+func (c *conn) Read(ip []byte) (n int, err error) {
+	n, err = c.raw.Recv(ip, nil)
 	if err == nil {
-		r.ipstack.UpdateInbound(ip[:n])
+		c.ipstack.UpdateInbound(ip[:n])
 
 		failpoint.ValidIP(ip[:n])
+	}
+
+	if c.complete && !internal.CompleteCheck(c.ipstack.IPv4(), ip) {
+		return 0, errors.WithStack(io.ErrShortBuffer)
 	}
 	return n, err
 }
 
-func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
+func (c *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	b := p.Data()
-	n, err := r.raw.RecvCtx(ctx, b[:cap(b)], nil)
+	n, err := c.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	if err != nil {
 		return err
 	}
@@ -333,65 +347,77 @@ func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	failpoint.ValidIP(p.Data())
 	switch header.IPVersion(b) {
 	case 4:
+		if c.complete && !internal.CompleteCheck(true, p.Data()) {
+			return errors.WithStack(io.ErrShortBuffer)
+		}
 		p.SetHead(p.Head() + int(header.IPv4(b).HeaderLength()))
 	case 6:
+		if c.complete && !internal.CompleteCheck(false, p.Data()) {
+			return errors.WithStack(io.ErrShortBuffer)
+		}
 		p.SetHead(p.Head() + header.IPv6MinimumSize)
 	}
 	return nil
 }
 
-func (r *conn) Write(ip []byte) (n int, err error) {
+func (c *conn) Write(ip []byte) (n int, err error) {
 	failpoint.ValidIP(ip)
 
-	r.ipstack.UpdateOutbound(ip)
-	return r.raw.Send(ip, outboundAddr)
+	c.ipstack.UpdateOutbound(ip)
+	return c.raw.Send(ip, outboundAddr)
 }
 
-func (r *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
-	r.ipstack.AttachOutbound(p)
+func (c *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	c.ipstack.AttachOutbound(p)
 	failpoint.ValidIP(p.Data())
 
 	// todo: ctx
-	_, err = r.raw.Send(p.Data(), outboundAddr)
+	_, err = c.raw.Send(p.Data(), outboundAddr)
 	return err
 }
 
-func (r *conn) Inject(ip []byte) (err error) {
+func (c *conn) Inject(ip []byte) (err error) {
 	failpoint.ValidIP(ip)
 
-	r.ipstack.UpdateInbound(ip)
-	_, err = r.raw.Send(ip, r.injectAddr)
+	c.ipstack.UpdateInbound(ip)
+	_, err = c.raw.Send(ip, c.injectAddr)
 	return err
 }
 
-func (r *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
-	r.ipstack.AttachInbound(p)
+func (c *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	c.ipstack.AttachInbound(p)
 
 	failpoint.ValidIP(p.Data())
 
-	_, err = r.raw.Send(p.Data(), r.injectAddr)
+	_, err = c.raw.Send(p.Data(), c.injectAddr)
 	return err
 }
 
 func (c *conn) Close() error {
-	var errs []error
+	var err error
 	if c.closeFn != nil {
-		errs = append(errs, c.closeFn(c.raddr, c.isn))
+		if e := c.closeFn(c.raddr, c.isn); e != nil {
+			err = e
+		}
 	}
 	if c.tcp != 0 {
-		errs = append(errs, windows.Close(c.tcp))
+		if e := windows.Close(c.tcp); e != nil {
+			err = e
+		}
 	}
 	if c.raw != nil {
-		errs = append(errs, c.raw.Close())
+		if e := c.raw.Close(); e != nil {
+			err = e
+		}
 	}
-	return errors.Join(errs...)
+	return err
 }
 
-func (r *conn) LocalAddr() net.Addr {
-	return &net.TCPAddr{IP: r.laddr.Addr().AsSlice(), Port: int(r.laddr.Port())}
+func (c *conn) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: c.laddr.Addr().AsSlice(), Port: int(c.laddr.Port())}
 }
-func (r *conn) RemoteAddr() net.Addr {
-	return &net.TCPAddr{IP: r.raddr.Addr().AsSlice(), Port: int(r.raddr.Port())}
+func (c *conn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: c.raddr.Addr().AsSlice(), Port: int(c.raddr.Port())}
 }
-func (r *conn) LocalAddrPort() netip.AddrPort  { return r.laddr }
-func (r *conn) RemoteAddrPort() netip.AddrPort { return r.raddr }
+func (c *conn) LocalAddrPort() netip.AddrPort  { return c.laddr }
+func (c *conn) RemoteAddrPort() netip.AddrPort { return c.raddr }

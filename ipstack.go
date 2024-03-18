@@ -16,7 +16,7 @@ import (
 
 // build ip header
 type IPStack struct {
-	option    ipstack.Options
+	option    *ipstack.Options
 	network   tcpip.NetworkProtocolNumber
 	transport tcpip.TransportProtocolNumber
 
@@ -61,11 +61,11 @@ func NewIPStack(laddr, raddr netip.Addr, proto tcpip.TransportProtocolNumber, op
 	}
 
 	var s = &IPStack{
-		option:    ipstack.Default,
+		option:    ipstack.Default(),
 		transport: proto,
 	}
 	for _, opt := range opts {
-		opt(&s.option)
+		opt(s.option)
 	}
 
 	if laddr.Is4() {
@@ -124,6 +124,10 @@ func (i *IPStack) Size() int {
 	} else {
 		return header.IPv6MinimumSize
 	}
+}
+
+func (i *IPStack) IPv4() bool {
+	return i.network == header.IPv4ProtocolNumber
 }
 
 func (i *IPStack) AttachInbound(p *Packet) {

@@ -2,7 +2,6 @@ package bpf
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/test"

@@ -1,11 +1,12 @@
 package test
 
 import (
-	"errors"
 	"fmt"
 	"net/netip"
 	"os"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -17,7 +18,14 @@ type TunTuple struct {
 }
 
 func (t *TunTuple) Close() error {
-	return errors.Join(t.ap1.Close(), t.ap2.Close())
+	var err error
+	if e := t.ap1.Close(); e != nil {
+		err = e
+	}
+	if e := t.ap2.Close(); e != nil {
+		err = e
+	}
+	return err
 }
 
 func CreateTunTuple(t require.TestingT) *TunTuple {

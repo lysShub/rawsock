@@ -2,17 +2,10 @@ package internal
 
 import (
 	"net/netip"
-	"time"
 
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
-
-type ClosedConnInfo struct {
-	DeleteAt time.Time
-	Raddr    netip.AddrPort
-	ISN      uint32
-}
 
 func MinIPPacketSize(addr netip.Addr, proto tcpip.TransportProtocolNumber) int {
 	var minSize int

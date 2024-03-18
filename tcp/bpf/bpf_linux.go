@@ -5,14 +5,16 @@ package bpf
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/internal"
@@ -37,7 +39,7 @@ type listener struct {
 	// AddrPort:ISN
 	conns map[netip.AddrPort]uint32
 
-	closedConns   []internal.ClosedConnInfo
+	closedConns   []tcp.ClosedConnInfo
 	closedConnsMu sync.RWMutex
 }
 
@@ -52,7 +54,8 @@ func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 	var err error
 	l.tcp, l.addr, err = internal.ListenLocal(laddr, l.cfg.UsedPort)
 	if err != nil {
-		return nil, errors.Join(err, l.Close())
+		l.Close()
+		return nil, err
 	}
 
 	l.raw, err = net.ListenIP(
@@ -60,19 +63,22 @@ func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 		&net.IPAddr{IP: l.addr.Addr().AsSlice(), Zone: laddr.Addr().Zone()},
 	)
 	if err != nil {
-		return nil, errors.Join(err, l.Close())
+		l.Close()
+		return nil, err
 	}
 	l.minIPPacketSize = internal.MinIPPacketSize(laddr.Addr(), header.TCPProtocolNumber)
 
 	raw, err := l.raw.SyscallConn()
 	if err != nil {
-		return nil, errors.Join(err, l.Close())
+		l.Close()
+		return nil, err
 	}
 
 	if err = ibpf.SetBPF(
 		raw,
 		ibpf.FilterDstPortAndSynFlag(l.addr.Port()),
 	); err != nil {
+		l.Close()
 		return nil, err
 	}
 
@@ -80,14 +86,18 @@ func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 }
 
 func (l *listener) Close() error {
-	var errs []error
+	var err error
 	if l.tcp != nil {
-		errs = append(errs, l.tcp.Close())
+		if e := l.tcp.Close(); e != nil {
+			err = e
+		}
 	}
 	if l.raw != nil {
-		errs = append(errs, l.raw.Close())
+		if e := l.raw.Close(); e != nil {
+			err = e
+		}
 	}
-	return errors.Join(errs...)
+	return err
 }
 
 func (l *listener) Addr() netip.AddrPort {
@@ -137,7 +147,7 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 				l.addr, raddr, isn,
 				l.deleteConn, l.cfg.CtxCancelDelay,
 			)
-			return c, c.init(l.cfg.IPStackCfg)
+			return c, c.init(l.cfg.CompleteCheck, l.cfg.IPStackCfg)
 		}
 	}
 }
@@ -170,7 +180,7 @@ func (l *listener) deleteConn(raddr netip.AddrPort, isn uint32) error {
 
 	l.closedConns = append(
 		l.closedConns,
-		internal.ClosedConnInfo{
+		tcp.ClosedConnInfo{
 			DeleteAt: time.Now(),
 			Raddr:    raddr,
 			ISN:      isn,
@@ -190,6 +200,7 @@ type conn struct {
 	laddr, raddr netip.AddrPort
 	isn          uint32
 	tcp          *net.TCPListener
+	complete     bool
 
 	raw *net.IPConn
 
@@ -213,10 +224,11 @@ func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) 
 
 	c.tcp, c.laddr, err = internal.ListenLocal(laddr, cfg.UsedPort)
 	if err != nil {
-		return nil, errors.Join(err, c.Close())
+		c.Close()
+		return nil, err
 	}
 
-	return c, c.init(cfg.IPStackCfg)
+	return c, c.init(cfg.CompleteCheck, cfg.IPStackCfg)
 }
 
 func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall tcp.CloseCallback, ctxDelay time.Duration) *conn {
@@ -229,27 +241,30 @@ func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall tcp.CloseCall
 	}
 }
 
-func (r *conn) init(ipCfg ipstack.Options) (err error) {
-	r.raw, err = net.DialIP(
+func (c *conn) init(complete bool, ipCfg *ipstack.Options) (err error) {
+	c.raw, err = net.DialIP(
 		"ip:tcp",
-		&net.IPAddr{IP: r.laddr.Addr().AsSlice(), Zone: r.laddr.Addr().Zone()},
-		&net.IPAddr{IP: r.raddr.Addr().AsSlice(), Zone: r.raddr.Addr().Zone()},
+		&net.IPAddr{IP: c.laddr.Addr().AsSlice(), Zone: c.laddr.Addr().Zone()},
+		&net.IPAddr{IP: c.raddr.Addr().AsSlice(), Zone: c.raddr.Addr().Zone()},
 	)
 	if err != nil {
-		return errors.Join(err, r.Close())
+		c.Close()
+		return err
 	}
 
-	raw, err := r.raw.SyscallConn()
+	raw, err := c.raw.SyscallConn()
 	if err != nil {
-		return errors.Join(err, r.Close())
+		c.Close()
+		return err
 	}
 
 	// filter src/dst ports
 	if err = ibpf.SetBPF(
 		raw,
-		ibpf.FilterSrcPortAndDstPort(r.raddr.Port(), r.laddr.Port()),
+		ibpf.FilterSrcPortAndDstPort(c.raddr.Port(), c.laddr.Port()),
 	); err != nil {
-		return errors.Join(err, r.Close())
+		c.Close()
+		return err
 	}
 
 	// read ip header
@@ -259,39 +274,52 @@ func (r *conn) init(ipCfg ipstack.Options) (err error) {
 			return
 		}
 	})
-	if err := errors.Join(err, e); err != nil {
-		return errors.Join(err, r.Close())
+	if e != nil {
+		c.Close()
+		return e
+	} else if err != nil {
+		c.Close()
+		return err
 	}
 
-	r.ipstack, err = relraw.NewIPStack(
-		r.laddr.Addr(), r.raddr.Addr(),
+	if c.ipstack, err = relraw.NewIPStack(
+		c.laddr.Addr(), c.raddr.Addr(),
 		header.TCPProtocolNumber,
 		ipCfg.Unmarshal(),
-	)
-	return err
+	); err != nil {
+		c.Close()
+		return err
+	}
+
+	c.complete = complete
+	return nil
 }
 
-func (r *conn) Read(ip []byte) (n int, err error) {
-	n, err = r.raw.Read(ip)
+func (c *conn) Read(ip []byte) (n int, err error) {
+	n, err = c.raw.Read(ip)
 	if err == nil {
-		r.ipstack.UpdateInbound(ip[:n])
+		c.ipstack.UpdateInbound(ip[:n])
 		failpoint.ValidIP(ip[:n])
+	}
+
+	if c.complete && !internal.CompleteCheck(c.ipstack.IPv4(), ip[:n]) {
+		return 0, errors.WithStack(io.ErrShortBuffer)
 	}
 	return n, err
 }
 
-func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
+func (c *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	b := p.Data()
 	b = b[:cap(b)]
 
 	var n int
 	for {
-		err = r.raw.SetReadDeadline(time.Now().Add(r.ctxCancelDelay))
+		err = c.raw.SetReadDeadline(time.Now().Add(c.ctxCancelDelay))
 		if err != nil {
 			return err
 		}
 
-		n, err = r.raw.Read(b)
+		n, err = c.raw.Read(b)
 		if err == nil {
 			break
 		} else if errors.Is(err, os.ErrDeadlineExceeded) {
@@ -310,75 +338,87 @@ func (r *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 
 	switch header.IPVersion(b) {
 	case 4:
+		if c.complete && !internal.CompleteCheck(true, p.Data()) {
+			return errors.WithStack(io.ErrShortBuffer)
+		}
 		p.SetHead(p.Head() + int(header.IPv4(b).HeaderLength()))
 	case 6:
+		if c.complete && !internal.CompleteCheck(false, p.Data()) {
+			return errors.WithStack(io.ErrShortBuffer)
+		}
 		p.SetHead(p.Head() + header.IPv6MinimumSize)
 	}
 	return nil
 }
 
-func (r *conn) Write(ip []byte) (n int, err error) {
-	r.ipstack.UpdateOutbound(ip)
+func (c *conn) Write(ip []byte) (n int, err error) {
+	c.ipstack.UpdateOutbound(ip)
 	failpoint.ValidIP(ip)
 
-	return r.raw.Write(ip)
+	return c.raw.Write(ip)
 }
 
-func (r *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
-	r.ipstack.AttachOutbound(p)
+func (c *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	c.ipstack.AttachOutbound(p)
 	failpoint.ValidIP(p.Data())
 
-	_, err = r.raw.Write(p.Data())
+	_, err = c.raw.Write(p.Data())
 	return err
 }
 
-func (r *conn) Inject(ip []byte) (err error) {
-	r.ipstack.UpdateInbound(ip)
+func (c *conn) Inject(ip []byte) (err error) {
+	c.ipstack.UpdateInbound(ip)
 	failpoint.ValidIP(ip)
 
-	_, err = r.raw.Write(ip)
+	_, err = c.raw.Write(ip)
 	return err
 }
 
-func (r *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
-	r.ipstack.AttachInbound(p)
+func (c *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
+	c.ipstack.AttachInbound(p)
 	failpoint.ValidIP(p.Data())
 
-	_, err = r.raw.Write(p.Data())
+	_, err = c.raw.Write(p.Data())
 	return err
 }
 
-func (r *conn) Close() error {
-	var errs []error
-	if r.closeFn != nil {
-		errs = append(errs, r.closeFn(r.raddr, r.isn))
+func (c *conn) Close() error {
+	var err error
+	if c.closeFn != nil {
+		if e := c.closeFn(c.raddr, c.isn); e != nil {
+			err = e
+		}
 	}
-	if r.tcp != nil {
-		errs = append(errs, r.tcp.Close())
+	if c.tcp != nil {
+		if e := c.tcp.Close(); e != nil {
+			err = e
+		}
 	}
-	if r.raw != nil {
-		errs = append(errs, r.raw.Close())
+	if c.raw != nil {
+		if e := c.raw.Close(); e != nil {
+			err = e
+		}
 	}
-	return errors.Join(errs...)
+	return err
 }
 
-func (r *conn) LocalAddr() net.Addr {
+func (c *conn) LocalAddr() net.Addr {
 	return &net.TCPAddr{
-		IP:   r.laddr.Addr().AsSlice(),
-		Port: int(r.laddr.Port()),
-		Zone: r.laddr.Addr().Zone(),
+		IP:   c.laddr.Addr().AsSlice(),
+		Port: int(c.laddr.Port()),
+		Zone: c.laddr.Addr().Zone(),
 	}
 }
-func (r *conn) RemoteAddr() net.Addr {
+func (c *conn) RemoteAddr() net.Addr {
 	return &net.TCPAddr{
-		IP:   r.raddr.Addr().AsSlice(),
-		Port: int(r.raddr.Port()),
-		Zone: r.raddr.Addr().Zone(),
+		IP:   c.raddr.Addr().AsSlice(),
+		Port: int(c.raddr.Port()),
+		Zone: c.raddr.Addr().Zone(),
 	}
 }
-func (r *conn) LocalAddrPort() netip.AddrPort {
-	return r.laddr
+func (c *conn) LocalAddrPort() netip.AddrPort {
+	return c.laddr
 }
-func (r *conn) RemoteAddrPort() netip.AddrPort {
-	return r.raddr
+func (c *conn) RemoteAddrPort() netip.AddrPort {
+	return c.raddr
 }

@@ -2,11 +2,12 @@ package internal
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/netip"
 	"testing"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/test"

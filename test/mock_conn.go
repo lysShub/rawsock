@@ -1,12 +1,13 @@
 package test
 
 import (
-	"errors"
 	"io"
 	"net"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/stretchr/testify/require"
 )

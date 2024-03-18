@@ -4,10 +4,11 @@
 package internal
 
 import (
-	"errors"
 	"net"
 	"net/netip"
 	"unsafe"
+
+	"github.com/pkg/errors"
 
 	"github.com/lysShub/relraw/internal/config"
 	"golang.org/x/net/bpf"
@@ -30,7 +31,8 @@ func ListenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 
 	raw, err := l.SyscallConn()
 	if err != nil {
-		return nil, netip.AddrPort{}, errors.Join(err, l.Close())
+		l.Close()
+		return nil, netip.AddrPort{}, err
 	}
 	var e error
 	err = raw.Control(func(fd uintptr) {
@@ -51,8 +53,12 @@ func ListenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 			unix.SO_ATTACH_FILTER, prog,
 		)
 	})
-	if err := errors.Join(err, e); err != nil {
-		return nil, netip.AddrPort{}, errors.Join(e, l.Close())
+	if e != nil {
+		l.Close()
+		return nil, netip.AddrPort{}, e
+	} else if err != nil {
+		l.Close()
+		return nil, netip.AddrPort{}, err
 	}
 
 	addr := netip.MustParseAddrPort(l.Addr().String())

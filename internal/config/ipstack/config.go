@@ -14,9 +14,11 @@ func (os Options) Unmarshal() Option {
 	}
 }
 
-var Default = Options{
-	Checksum:       ReCalcChecksum,
-	CalcIPChecksum: true,
+func Default() *Options {
+	return &Options{
+		Checksum:       ReCalcChecksum,
+		CalcIPChecksum: true,
+	}
 }
 
 const (

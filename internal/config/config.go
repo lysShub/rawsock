@@ -11,18 +11,22 @@ type Config struct {
 	UsedPort       bool
 	MTU            int
 	CtxCancelDelay time.Duration
-	IPStackCfg     ipstack.Options
+	CompleteCheck  bool // check ip packet is complete
+	IPStackCfg     *ipstack.Options
 
 	DivertPriorty int16
 }
 
-var Default = Config{
-	UsedPort:       false,
-	MTU:            1536,
-	CtxCancelDelay: time.Millisecond * 100,
-	IPStackCfg:     ipstack.Default,
+func Default() *Config {
+	return &Config{
+		UsedPort:       false,
+		MTU:            1536,
+		CtxCancelDelay: time.Millisecond * 100,
+		CompleteCheck:  true,
+		IPStackCfg:     ipstack.Default(),
 
-	DivertPriorty: 0,
+		DivertPriorty: 0,
+	}
 }
 
 type ErrNotUsedPort int

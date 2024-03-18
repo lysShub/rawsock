@@ -43,7 +43,7 @@ type options struct {
 }
 
 var defaultOptions = options{
-	Config: config.Default,
+	Config: *config.Default(),
 
 	validAddr:     false,
 	validChecksum: false,

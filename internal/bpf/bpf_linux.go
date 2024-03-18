@@ -4,7 +4,6 @@
 package bpf
 
 import (
-	"errors"
 	"syscall"
 	"unsafe"
 
@@ -24,8 +23,13 @@ func SetBPF(raw syscall.RawConn, ins []bpf.Instruction) error {
 	}
 
 	var e error
-	err := raw.Control(func(fd uintptr) {
-		e = unix.SetsockoptSockFprog(int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog)
-	})
-	return errors.Join(e, err)
+	if err := raw.Control(func(fd uintptr) {
+		e = unix.SetsockoptSockFprog(
+			int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog,
+		)
+	}); err != nil {
+		return err
+	}
+
+	return e
 }

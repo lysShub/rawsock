@@ -3,12 +3,13 @@ package test
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"io"
 	"math/rand"
 	"net"
 	"net/netip"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/lysShub/relraw"
 	"github.com/stretchr/testify/require"
