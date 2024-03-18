@@ -13,15 +13,17 @@ import (
 
 	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/test"
-	"github.com/lysShub/relraw/test/debug"
+	"github.com/lysShub/relraw/test/failpoint"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 func Test_Listen(t *testing.T) {
+	failpoint.Enable(failpoint.FnValidIP)
+	defer failpoint.Enable(failpoint.FnValidIP)
 
-	t.Run("accept-once", func(t *testing.T) {
+	defer t.Run("accept-once", func(t *testing.T) {
 		addr := netip.AddrPortFrom(test.LocIP(), test.RandPort())
 
 		var cnt atomic.Uint32
@@ -52,9 +54,9 @@ func Test_Listen(t *testing.T) {
 
 func Test_Connect(t *testing.T) {
 	t.Run("loopback", func(t *testing.T) {
-		if debug.Debug() {
-			t.Skip("debug mode") // todo: maybe TSO
-		}
+		// todo: maybe TSO
+		// failpoint.Enable(failpoint.FnValidIP)
+		// defer failpoint.Enable(failpoint.FnValidIP)
 
 		var (
 			caddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
@@ -104,6 +106,9 @@ func Test_Connect(t *testing.T) {
 	})
 
 	t.Run("nics", func(t *testing.T) {
+		failpoint.Enable(failpoint.FnValidIP)
+		defer failpoint.Enable(failpoint.FnValidIP)
+
 		tt := test.CreateTunTuple(t)
 		var (
 			saddr = netip.AddrPortFrom(tt.Addr1, test.RandPort())
@@ -156,28 +161,79 @@ func Test_Connect(t *testing.T) {
 
 }
 
-func Test_Recv(t *testing.T) {
-	t.Run("RecvCtx/cancel", func(t *testing.T) {
-		var (
-			caddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
-			saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
-		)
+func Test_Context(t *testing.T) {
+	var (
+		caddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+		saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+	)
 
-		const delay = time.Millisecond * 100
-		conn, err := Connect(caddr, saddr, relraw.CtxDelay(delay))
+	const delay = time.Millisecond * 100
+	conn, err := Connect(caddr, saddr, relraw.CtxDelay(delay))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(time.Second)
+		cancel()
+	}()
+
+	p := relraw.ToPacket(0, make([]byte, 1536))
+	s := time.Now()
+	err = conn.ReadCtx(ctx, p)
+	require.True(t, errors.Is(err, context.Canceled))
+	require.Less(t, time.Since(s), time.Second+2*delay)
+}
+
+func Test_MTU(t *testing.T) {
+	// todo: maybe TSO
+	// failpoint.Enable(failpoint.FnValidIP)
+	// defer failpoint.Enable(failpoint.FnValidIP)
+
+	t.Skip("todo")
+
+	var (
+		caddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+		saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+	)
+
+	// todo: add noise
+	go func() {
+		l, err := net.ListenTCP("tcp", test.TCPAddr(saddr))
+		require.NoError(t, err)
+		defer l.Close()
+
+		conn, err := l.AcceptTCP()
 		require.NoError(t, err)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() {
-			time.Sleep(time.Second)
-			cancel()
-		}()
+		_, err = io.Copy(conn, conn)
+		require.NoError(t, err)
+	}()
+	time.Sleep(time.Second)
 
-		p := relraw.ToPacket(0, make([]byte, 1536))
-		s := time.Now()
-		err = conn.ReadCtx(ctx, p)
-		require.True(t, errors.Is(err, context.Canceled))
-		require.Less(t, time.Since(s), time.Second+2*delay)
-	})
+	raw, err := Connect(caddr, saddr, relraw.MTU(40))
+	require.NoError(t, err)
+	us := test.NewUstack(t, caddr.Addr(), false)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	test.BindRawToUstack(t, ctx, us, raw)
+
+	conn, err := gonet.DialTCPWithBind(
+		ctx, us.Stack(),
+		test.FullAddress(caddr), test.FullAddress(saddr),
+		header.IPv4ProtocolNumber,
+	)
+	require.NoError(t, err)
+
+	req := []byte("hello world")
+	_, err = conn.Write(req)
+	require.NoError(t, err)
+
+	resp := make([]byte, len(req))
+	n, err := conn.Read(resp)
+	require.NoError(t, err)
+	require.Equal(t, req, resp[:n])
+
+	require.NoError(t, conn.Close())
+	cancel()
 }
