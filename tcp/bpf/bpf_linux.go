@@ -22,7 +22,8 @@ import (
 	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/internal/config/ipstack"
 	"github.com/lysShub/relraw/tcp"
-	"github.com/lysShub/relraw/test/failpoint"
+	"github.com/lysShub/relraw/test"
+	"github.com/lysShub/relraw/test/debug"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
@@ -299,7 +300,9 @@ func (c *conn) Read(ip []byte) (n int, err error) {
 	n, err = c.raw.Read(ip)
 	if err == nil {
 		c.ipstack.UpdateInbound(ip[:n])
-		failpoint.ValidIP(ip[:n])
+		if debug.Debug() {
+			test.ValidIP(test.T(), ip[:n])
+		}
 	}
 
 	if c.complete && !internal.CompleteCheck(c.ipstack.IPv4(), ip[:n]) {
@@ -327,15 +330,16 @@ func (c *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
-				return err
+				continue
 			}
 		} else {
 			return err
 		}
 	}
 	p.SetLen(n)
-	failpoint.ValidIP(p.Data())
-
+	if debug.Debug() {
+		test.ValidIP(test.T(), p.Data())
+	}
 	switch header.IPVersion(b) {
 	case 4:
 		if c.complete && !internal.CompleteCheck(true, p.Data()) {
@@ -353,31 +357,35 @@ func (c *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 
 func (c *conn) Write(ip []byte) (n int, err error) {
 	c.ipstack.UpdateOutbound(ip)
-	failpoint.ValidIP(ip)
-
+	if debug.Debug() {
+		test.ValidIP(test.T(), ip)
+	}
 	return c.raw.Write(ip)
 }
 
 func (c *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
-	failpoint.ValidIP(p.Data())
-
+	if debug.Debug() {
+		test.ValidIP(test.T(), p.Data())
+	}
 	_, err = c.raw.Write(p.Data())
 	return err
 }
 
 func (c *conn) Inject(ip []byte) (err error) {
 	c.ipstack.UpdateInbound(ip)
-	failpoint.ValidIP(ip)
-
+	if debug.Debug() {
+		test.ValidIP(test.T(), ip)
+	}
 	_, err = c.raw.Write(ip)
 	return err
 }
 
 func (c *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	c.ipstack.AttachInbound(p)
-	failpoint.ValidIP(p.Data())
-
+	if debug.Debug() {
+		test.ValidIP(test.T(), p.Data())
+	}
 	_, err = c.raw.Write(p.Data())
 	return err
 }

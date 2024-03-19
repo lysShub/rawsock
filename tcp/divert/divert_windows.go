@@ -19,7 +19,8 @@ import (
 	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/internal/config/ipstack"
 	"github.com/lysShub/relraw/tcp"
-	"github.com/lysShub/relraw/test/failpoint"
+	"github.com/lysShub/relraw/test"
+	"github.com/lysShub/relraw/test/debug"
 	pkge "github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -327,7 +328,9 @@ func (c *conn) Read(ip []byte) (n int, err error) {
 	if err == nil {
 		c.ipstack.UpdateInbound(ip[:n])
 
-		failpoint.ValidIP(ip[:n])
+		if debug.Debug() {
+			test.ValidIP(test.T(), ip[:n])
+		}
 	}
 
 	if c.complete && !internal.CompleteCheck(c.ipstack.IPv4(), ip) {
@@ -340,28 +343,30 @@ func (c *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	b := p.Data()
 	n, err := c.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	if err != nil {
+		if errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
+			return errors.WithStack(io.ErrShortBuffer)
+		}
 		return err
 	}
 
 	p.SetLen(n)
-	failpoint.ValidIP(p.Data())
+	if debug.Debug() {
+		test.ValidIP(test.T(), p.Data())
+	}
+
 	switch header.IPVersion(b) {
 	case 4:
-		if c.complete && !internal.CompleteCheck(true, p.Data()) {
-			return errors.WithStack(io.ErrShortBuffer)
-		}
 		p.SetHead(p.Head() + int(header.IPv4(b).HeaderLength()))
 	case 6:
-		if c.complete && !internal.CompleteCheck(false, p.Data()) {
-			return errors.WithStack(io.ErrShortBuffer)
-		}
 		p.SetHead(p.Head() + header.IPv6MinimumSize)
 	}
 	return nil
 }
 
 func (c *conn) Write(ip []byte) (n int, err error) {
-	failpoint.ValidIP(ip)
+	if debug.Debug() {
+		test.ValidIP(test.T(), ip)
+	}
 
 	c.ipstack.UpdateOutbound(ip)
 	return c.raw.Send(ip, outboundAddr)
@@ -369,7 +374,9 @@ func (c *conn) Write(ip []byte) (n int, err error) {
 
 func (c *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
-	failpoint.ValidIP(p.Data())
+	if debug.Debug() {
+		test.ValidIP(test.T(), p.Data())
+	}
 
 	// todo: ctx
 	_, err = c.raw.Send(p.Data(), outboundAddr)
@@ -377,7 +384,9 @@ func (c *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
 }
 
 func (c *conn) Inject(ip []byte) (err error) {
-	failpoint.ValidIP(ip)
+	if debug.Debug() {
+		test.ValidIP(test.T(), ip)
+	}
 
 	c.ipstack.UpdateInbound(ip)
 	_, err = c.raw.Send(ip, c.injectAddr)
@@ -387,7 +396,9 @@ func (c *conn) Inject(ip []byte) (err error) {
 func (c *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
 	c.ipstack.AttachInbound(p)
 
-	failpoint.ValidIP(p.Data())
+	if debug.Debug() {
+		test.ValidIP(test.T(), p.Data())
+	}
 
 	_, err = c.raw.Send(p.Data(), c.injectAddr)
 	return err

@@ -9,7 +9,7 @@ import (
 
 type Config struct {
 	UsedPort       bool
-	MTU            int
+	MTU            int // todo: remove, only use by listener
 	CtxCancelDelay time.Duration
 	CompleteCheck  bool // check ip packet is complete
 	IPStackCfg     *ipstack.Options

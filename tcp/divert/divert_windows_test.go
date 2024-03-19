@@ -8,8 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"bou.ke/monkey"
 	"github.com/lysShub/divert-go"
+	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/test"
+	"github.com/lysShub/relraw/test/debug"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -27,11 +31,9 @@ func Test_Listen(t *testing.T) {
 }
 
 func Test_Connect(t *testing.T) {
-
 	t.Run("connect/loopback", func(t *testing.T) {
-		// todo: maybe TSO
-		// failpoint.Enable(failpoint.FnValidIP)
-		// defer failpoint.Enable(failpoint.FnValidIP)
+		// todo: maybe checksum offload?
+		monkey.Patch(debug.Debug, func() bool { return false })
 
 		var (
 			saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
@@ -89,4 +91,66 @@ func Test_Connect(t *testing.T) {
 	// defer tp.Close()
 	// })
 
+}
+
+func Test_Complete_Check(t *testing.T) {
+	// todo: maybe checksum offload?
+	monkey.Patch(debug.Debug, func() bool { return false })
+
+	t.Run("Read", func(t *testing.T) {
+		var (
+			caddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+			saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+		)
+
+		go func() {
+			time.Sleep(time.Second)
+
+			raw, err := Connect(saddr, caddr)
+			require.NoError(t, err)
+			defer raw.Close()
+
+			tcp := test.BuildTCPSync(t, saddr, caddr)
+
+			err = raw.WriteCtx(context.Background(), relraw.ToPacket(0, tcp))
+			require.NoError(t, err)
+		}()
+
+		raw, err := Connect(caddr, saddr)
+		require.NoError(t, err)
+		defer raw.Close()
+
+		var ip = make([]byte, 39)
+		n, err := raw.Read(ip)
+		require.Zero(t, n)
+		require.True(t, errors.Is(err, io.ErrShortBuffer))
+	})
+
+	t.Run("ReadCtx", func(t *testing.T) {
+		var (
+			caddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+			saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+		)
+
+		go func() {
+			time.Sleep(time.Second)
+
+			raw, err := Connect(saddr, caddr)
+			require.NoError(t, err)
+			defer raw.Close()
+
+			tcp := test.BuildTCPSync(t, saddr, caddr)
+
+			err = raw.WriteCtx(context.Background(), relraw.ToPacket(0, tcp))
+			require.NoError(t, err)
+		}()
+
+		raw, err := Connect(caddr, saddr)
+		require.NoError(t, err)
+		defer raw.Close()
+
+		var p = relraw.ToPacket(0, make([]byte, 39))
+		err = raw.ReadCtx(context.Background(), p)
+		require.True(t, errors.Is(err, io.ErrShortBuffer), err)
+	})
 }

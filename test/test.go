@@ -73,7 +73,7 @@ func BuildTCPSync(t require.TestingT, laddr, raddr netip.AddrPort) header.TCP {
 		SeqNum:     rand.Uint32(),
 		AckNum:     rand.Uint32(),
 		DataOffset: header.TCPMinimumSize,
-		Flags:      header.TCPFlagAck | header.TCPFlagPsh,
+		Flags:      header.TCPFlagSyn,
 		WindowSize: 83,
 		Checksum:   0,
 	})
@@ -84,7 +84,7 @@ func BuildTCPSync(t require.TestingT, laddr, raddr netip.AddrPort) header.TCP {
 		uint16(len(b)),
 	)
 	sum = checksum.Checksum(b, sum)
-	b.SetChecksum(sum)
+	b.SetChecksum(^sum)
 
 	require.True(t,
 		b.IsChecksumValid(
