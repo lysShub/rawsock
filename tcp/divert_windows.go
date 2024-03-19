@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net"
 	"net/netip"
 	"sort"
 	"sync"
@@ -428,11 +427,5 @@ func (c *conn) Close() error {
 	return err
 }
 
-func (c *conn) LocalAddr() net.Addr {
-	return &net.TCPAddr{IP: c.laddr.Addr().AsSlice(), Port: int(c.laddr.Port())}
-}
-func (c *conn) RemoteAddr() net.Addr {
-	return &net.TCPAddr{IP: c.raddr.Addr().AsSlice(), Port: int(c.raddr.Port())}
-}
-func (c *conn) LocalAddrPort() netip.AddrPort  { return c.laddr }
-func (c *conn) RemoteAddrPort() netip.AddrPort { return c.raddr }
+func (c *conn) LocalAddr() netip.AddrPort  { return c.laddr }
+func (c *conn) RemoteAddr() netip.AddrPort { return c.raddr }

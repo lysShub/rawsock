@@ -1,7 +1,7 @@
-# raw socket
+# building...
 
+# netpack
 
-todo:
-- test over MTU packet
-- apply more debug check points
+**golang transport layer read/write.**
+
 

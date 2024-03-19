@@ -12,9 +12,6 @@ type Listener interface {
 	// todo:
 	// AcceptCtx(ctx context.Context)(RawConn, error)
 
-	// todo: next support
-	// AcceptBy(filter []bpf.Instruction)(RawConn,error)
-
 	Addr() netip.AddrPort
 
 	Close() error
@@ -43,10 +40,8 @@ type RawConn interface {
 	// should set checksum that without pseudo checksum
 	InjectCtx(ctx context.Context, p *Packet) (err error)
 
-	LocalAddr() net.Addr
-	RemoteAddr() net.Addr
-	LocalAddrPort() netip.AddrPort
-	RemoteAddrPort() netip.AddrPort
+	LocalAddr() netip.AddrPort
+	RemoteAddr() netip.AddrPort
 }
 
 func LocalAddr() netip.Addr {

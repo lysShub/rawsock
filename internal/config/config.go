@@ -8,20 +8,20 @@ import (
 )
 
 type Config struct {
-	UsedPort       bool
-	CtxCancelDelay time.Duration
-	CompleteCheck  bool // check ip packet is complete
-	IPStackCfg     *ipstack.Options
+	UsedPort      bool
+	CtxPeriod     time.Duration
+	CompleteCheck bool // check ip packet is complete
+	IPStackCfg    *ipstack.Options
 
 	DivertPriorty int16
 }
 
 func Default() *Config {
 	return &Config{
-		UsedPort:       false,
-		CtxCancelDelay: time.Millisecond * 100,
-		CompleteCheck:  true,
-		IPStackCfg:     ipstack.Default(),
+		UsedPort:      false,
+		CtxPeriod:     time.Millisecond * 100,
+		CompleteCheck: true,
+		IPStackCfg:    ipstack.Default(),
 
 		DivertPriorty: 0,
 	}

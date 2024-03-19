@@ -415,23 +415,9 @@ func (c *conn) Close() error {
 	return err
 }
 
-func (c *conn) LocalAddr() net.Addr {
-	return &net.TCPAddr{
-		IP:   c.laddr.Addr().AsSlice(),
-		Port: int(c.laddr.Port()),
-		Zone: c.laddr.Addr().Zone(),
-	}
-}
-func (c *conn) RemoteAddr() net.Addr {
-	return &net.TCPAddr{
-		IP:   c.raddr.Addr().AsSlice(),
-		Port: int(c.raddr.Port()),
-		Zone: c.raddr.Addr().Zone(),
-	}
-}
-func (c *conn) LocalAddrPort() netip.AddrPort {
+func (c *conn) LocalAddr() netip.AddrPort {
 	return c.laddr
 }
-func (c *conn) RemoteAddrPort() netip.AddrPort {
+func (c *conn) RemoteAddr() netip.AddrPort {
 	return c.raddr
 }

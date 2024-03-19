@@ -5,7 +5,6 @@ import (
 	"io"
 	"math"
 	"math/rand"
-	"net"
 	"net/netip"
 	"os"
 	"sync"
@@ -268,14 +267,8 @@ func (r *MockRaw) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
 		return nil
 	}
 }
-func (r *MockRaw) LocalAddr() net.Addr {
-	return &net.TCPAddr{IP: r.local.Addr().AsSlice(), Port: int(r.local.Port())}
-}
-func (r *MockRaw) RemoteAddr() net.Addr {
-	return &net.TCPAddr{IP: r.remote.Addr().AsSlice(), Port: int(r.remote.Port())}
-}
-func (r *MockRaw) LocalAddrPort() netip.AddrPort  { return r.local }
-func (r *MockRaw) RemoteAddrPort() netip.AddrPort { return r.remote }
+func (r *MockRaw) LocalAddr() netip.AddrPort  { return r.local }
+func (r *MockRaw) RemoteAddr() netip.AddrPort { return r.remote }
 
 func (r *MockRaw) loss() bool {
 	if r.pl < 0.000001 {
@@ -344,9 +337,9 @@ type MockListener struct {
 var _ relraw.Listener = (*MockListener)(nil)
 
 func NewMockListener(t require.TestingT, raws ...relraw.RawConn) *MockListener {
-	var addr = raws[0].LocalAddrPort()
+	var addr = raws[0].LocalAddr()
 	for _, e := range raws {
-		require.Equal(t, addr, e.LocalAddrPort())
+		require.Equal(t, addr, e.LocalAddr())
 	}
 
 	var l = &MockListener{

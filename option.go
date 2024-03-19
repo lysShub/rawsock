@@ -24,21 +24,23 @@ func UsedPort() Option {
 	}
 }
 
-func CtxDelay(delay time.Duration) Option {
+// CtxPeriod set check context cancel period
+func CtxPeriod(period time.Duration) Option {
 	return func(c *config.Config) {
-		if delay > 0 {
-			c.CtxCancelDelay = delay
+		if period > 0 {
+			c.CtxPeriod = period
 		}
 	}
 }
 
+// Complete valid recv packet is completed
 func Complete(check bool) Option {
 	return func(c *config.Config) {
 		c.CompleteCheck = true
 	}
 }
 
-// Checksum in WriteCtx/InjectCtx, set tcp/udp checksum calcuate mode
+// Checksum set recv/send tansport packet checksum calcuate mode
 func Checksum(opts ...ipstack.Option) Option {
 	return func(c *config.Config) {
 		for _, opt := range opts {
