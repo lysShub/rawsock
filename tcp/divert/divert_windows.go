@@ -137,7 +137,7 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 		} else if n < min {
 			return nil, fmt.Errorf("recved invalid ip packet, bytes %d", n)
 		}
-		l.purgeOne()
+		l.purgeDeleted()
 
 		var raddr netip.AddrPort
 		var isn uint32
@@ -176,21 +176,21 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 	}
 }
 
-func (l *listener) purgeOne() {
+func (l *listener) purgeDeleted() {
 	l.closedConnsMu.Lock()
 	defer l.closedConnsMu.Unlock()
 
-	if n := len(l.closedConns); n > 0 {
-		i := n - 1
+	for i := len(l.closedConns) - 1; i >= 0; i-- {
 		c := l.closedConns[i]
-
 		if time.Since(c.DeleteAt) > time.Minute {
 			isn, ok := l.conns[c.Raddr]
 			if ok && isn == c.ISN {
 				delete(l.conns, c.Raddr)
 			}
 
-			l.closedConns = l.closedConns[:n-1]
+			l.closedConns = l.closedConns[:i]
+		} else {
+			break
 		}
 	}
 }

@@ -2,7 +2,6 @@ package bpf
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net"
 	"net/netip"
@@ -22,7 +21,7 @@ import (
 )
 
 func Test_Listen(t *testing.T) {
-	defer t.Run("accept-once", func(t *testing.T) {
+	t.Run("accept-once", func(t *testing.T) {
 		addr := netip.AddrPortFrom(test.LocIP(), test.RandPort())
 
 		var cnt atomic.Uint32
@@ -40,15 +39,17 @@ func Test_Listen(t *testing.T) {
 		}()
 		time.Sleep(time.Second)
 
+		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
-			conn, err := net.DialTCP("tcp", nil, &net.TCPAddr{IP: test.LocIP().AsSlice(), Port: int(addr.Port())})
-			fmt.Println(conn, err)
+			// system tcp dial will retransmit SYN packet
+			_, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr.String())
+			require.Error(t, err)
 		}()
 
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 3)
+		cancel()
 		require.Equal(t, uint32(1), cnt.Load())
 	})
-
 }
 
 func Test_Connect(t *testing.T) {
@@ -154,7 +155,6 @@ func Test_Connect(t *testing.T) {
 			require.Equal(t, saddr.Port(), tcpHdr.DestinationPort())
 		}
 	})
-
 }
 
 func Test_Context(t *testing.T) {
