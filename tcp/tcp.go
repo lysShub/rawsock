@@ -5,10 +5,12 @@ import (
 	"time"
 )
 
-type CloseCallback func(raddr netip.AddrPort, isn uint32) error
+type closeCallback func(raddr netip.AddrPort, isn uint32) error
 
-type ClosedConnInfo struct {
+type closedTCPInfo struct {
 	DeleteAt time.Time
 	Raddr    netip.AddrPort
 	ISN      uint32
 }
+
+// todo: tun implement

@@ -1,4 +1,4 @@
-package bpf
+package tcp
 
 import (
 	"context"

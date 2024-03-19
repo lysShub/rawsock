@@ -1,4 +1,4 @@
-package divert
+package tcp
 
 import (
 	"context"

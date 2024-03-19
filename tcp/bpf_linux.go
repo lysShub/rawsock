@@ -1,7 +1,7 @@
 //go:build linux
 // +build linux
 
-package bpf
+package tcp
 
 import (
 	"context"
@@ -18,10 +18,9 @@ import (
 
 	"github.com/lysShub/relraw"
 	"github.com/lysShub/relraw/internal"
-	ibpf "github.com/lysShub/relraw/internal/bpf"
+	"github.com/lysShub/relraw/internal/bpf"
 	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/internal/config/ipstack"
-	"github.com/lysShub/relraw/tcp"
 	"github.com/lysShub/relraw/test"
 	"github.com/lysShub/relraw/test/debug"
 	"golang.org/x/sys/unix"
@@ -39,7 +38,7 @@ type listener struct {
 	// AddrPort:ISN
 	conns map[netip.AddrPort]uint32
 
-	closedConns   []tcp.ClosedConnInfo
+	closedConns   []closedTCPInfo
 	closedConnsMu sync.RWMutex
 }
 
@@ -73,9 +72,9 @@ func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 		return nil, err
 	}
 
-	if err = ibpf.SetBPF(
+	if err = bpf.SetBPF(
 		raw,
-		ibpf.FilterDstPortAndSynFlag(l.addr.Port()),
+		bpf.FilterDstPortAndSynFlag(l.addr.Port()),
 	); err != nil {
 		l.Close()
 		return nil, err
@@ -87,7 +86,7 @@ func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 func (l *listener) Close() error {
 	var err error
 	if l.tcp != nil {
-		if e := l.tcp.Close(); e != nil {
+		if e := l.Close(); e != nil {
 			err = e
 		}
 	}
@@ -187,7 +186,7 @@ func (l *listener) deleteConn(raddr netip.AddrPort, isn uint32) error {
 
 	l.closedConns = append(
 		l.closedConns,
-		tcp.ClosedConnInfo{
+		closedTCPInfo{
 			DeleteAt: time.Now(),
 			Raddr:    raddr,
 			ISN:      isn,
@@ -215,7 +214,7 @@ type conn struct {
 
 	ctxCancelDelay time.Duration
 
-	closeFn tcp.CloseCallback
+	closeFn closeCallback
 }
 
 var _ relraw.RawConn = (*conn)(nil)
@@ -238,7 +237,7 @@ func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) 
 	return c, c.init(cfg.CompleteCheck, cfg.IPStackCfg)
 }
 
-func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall tcp.CloseCallback, ctxDelay time.Duration) *conn {
+func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallback, ctxDelay time.Duration) *conn {
 	return &conn{
 		laddr:          laddr,
 		raddr:          raddr,
@@ -266,9 +265,9 @@ func (c *conn) init(complete bool, ipCfg *ipstack.Options) (err error) {
 	}
 
 	// filter src/dst ports
-	if err = ibpf.SetBPF(
+	if err = bpf.SetBPF(
 		raw,
-		ibpf.FilterSrcPortAndDstPort(c.raddr.Port(), c.laddr.Port()),
+		bpf.FilterSrcPortAndDstPort(c.raddr.Port(), c.laddr.Port()),
 	); err != nil {
 		c.Close()
 		return err
@@ -404,7 +403,7 @@ func (c *conn) Close() error {
 		}
 	}
 	if c.tcp != nil {
-		if e := c.tcp.Close(); e != nil {
+		if e := c.Close(); e != nil {
 			err = e
 		}
 	}

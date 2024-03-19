@@ -1,4 +1,4 @@
-package divert
+package tcp
 
 import (
 	"context"
@@ -18,10 +18,8 @@ import (
 	"github.com/lysShub/relraw/internal"
 	"github.com/lysShub/relraw/internal/config"
 	"github.com/lysShub/relraw/internal/config/ipstack"
-	"github.com/lysShub/relraw/tcp"
 	"github.com/lysShub/relraw/test"
 	"github.com/lysShub/relraw/test/debug"
-	pkge "github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
@@ -53,7 +51,7 @@ type listener struct {
 	// AddrPort:ISN
 	conns map[netip.AddrPort]uint32
 
-	closedConns   []tcp.ClosedConnInfo
+	closedConns   []closedTCPInfo
 	closedConnsMu sync.RWMutex
 }
 
@@ -204,7 +202,7 @@ func (l *listener) deleteConn(raddr netip.AddrPort, isn uint32) error {
 
 	l.closedConns = append(
 		l.closedConns,
-		tcp.ClosedConnInfo{
+		closedTCPInfo{
 			DeleteAt: time.Now(),
 			Raddr:    raddr,
 			ISN:      isn,
@@ -234,7 +232,7 @@ type conn struct {
 
 	ipstack *relraw.IPStack
 
-	closeFn tcp.CloseCallback
+	closeFn closeCallback
 }
 
 var outboundAddr = func() *divert.Address {
@@ -262,7 +260,7 @@ func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) 
 		laddr = netip.AddrPortFrom(addr, laddr.Port())
 	} else {
 		if laddr.Addr() != addr {
-			err = pkge.WithMessagef(
+			err = errors.WithMessagef(
 				windows.ERROR_NETWORK_UNREACHABLE,
 				"%s -> %s", laddr.Addr().String(), raddr.Addr().String(),
 			)
@@ -280,7 +278,7 @@ func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) 
 	return c, c.init(cfg.DivertPriorty, cfg.CompleteCheck, cfg.IPStackCfg)
 }
 
-func newConnect(laddr, raddr netip.AddrPort, isn uint32, loopback bool, ifIdx int, closeCall tcp.CloseCallback) *conn {
+func newConnect(laddr, raddr netip.AddrPort, isn uint32, loopback bool, ifIdx int, closeCall closeCallback) *conn {
 
 	var conn = &conn{
 		laddr:      laddr,
