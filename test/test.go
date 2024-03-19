@@ -100,15 +100,19 @@ func BuildTCPSync(t require.TestingT, laddr, raddr netip.AddrPort) header.TCP {
 
 func ValidIP(t require.TestingT, ip []byte) {
 	var ipheader header.Network
+	var totalLen int
 	switch header.IPVersion(ip) {
 	case 4:
 		ip := header.IPv4(ip)
 		require.True(t, ip.IsChecksumValid())
 		ipheader = ip
+		totalLen = int(ip.TotalLength())
 	case 6:
 		ipheader = header.IPv6(ip)
+		totalLen = int(header.IPv6(ip).PayloadLength()) + header.IPv6MinimumSize
 	default:
 	}
+	require.Equal(t, totalLen, len(ip))
 
 	pseudoSum1 := header.PseudoHeaderChecksum(
 		ipheader.TransportProtocol(),
