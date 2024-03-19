@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lysShub/relraw/internal/config/ipstack"
+	"github.com/lysShub/rsocket/internal/config/ipstack"
 )
 
 type Config struct {

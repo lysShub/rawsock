@@ -11,7 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/lysShub/relraw"
+	"github.com/lysShub/rsocket"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -162,9 +162,9 @@ func BuildRawTCP(t require.TestingT, laddr, raddr netip.AddrPort, payload []byte
 		Checksum:   0,
 	})
 
-	s, err := relraw.NewIPStack(laddr.Addr(), raddr.Addr(), header.TCPProtocolNumber)
+	s, err := rsocket.NewIPStack(laddr.Addr(), raddr.Addr(), header.TCPProtocolNumber)
 	require.NoError(t, err)
-	p := relraw.ToPacket(s.Size(), b)
+	p := rsocket.ToPacket(s.Size(), b)
 	s.AttachOutbound(p)
 
 	// psoSum := s.AttachHeader(b, header.TCPProtocolNumber)
@@ -290,10 +290,10 @@ func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int
 	}
 }
 
-func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw relraw.RawConn) {
+func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw rsocket.RawConn) {
 	var mtu = 1536
 	go func() {
-		var ip = relraw.ToPacket(0, make([]byte, mtu))
+		var ip = rsocket.ToPacket(0, make([]byte, mtu))
 		sum := calcChecksum()
 		for {
 			select {

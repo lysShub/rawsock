@@ -1,4 +1,4 @@
-package relraw
+package rsocket
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"sync/atomic"
 
-	"github.com/lysShub/relraw/internal/config/ipstack"
+	"github.com/lysShub/rsocket/internal/config/ipstack"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"

@@ -13,12 +13,12 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/lysShub/divert-go"
-	"github.com/lysShub/relraw"
-	"github.com/lysShub/relraw/internal"
-	"github.com/lysShub/relraw/internal/config"
-	"github.com/lysShub/relraw/internal/config/ipstack"
-	"github.com/lysShub/relraw/test"
-	"github.com/lysShub/relraw/test/debug"
+	"github.com/lysShub/rsocket"
+	"github.com/lysShub/rsocket/internal"
+	"github.com/lysShub/rsocket/internal/config"
+	"github.com/lysShub/rsocket/internal/config/ipstack"
+	"github.com/lysShub/rsocket/test"
+	"github.com/lysShub/rsocket/test/debug"
 	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
@@ -54,11 +54,11 @@ type listener struct {
 	closedConnsMu sync.RWMutex
 }
 
-var _ relraw.Listener = (*listener)(nil)
+var _ rsocket.Listener = (*listener)(nil)
 
-func Listen(locAddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
+func Listen(locAddr netip.AddrPort, opts ...rsocket.Option) (*listener, error) {
 	var l = &listener{
-		cfg:   relraw.Options(opts...),
+		cfg:   rsocket.Options(opts...),
 		conns: make(map[netip.AddrPort]uint32, 16),
 	}
 
@@ -91,7 +91,7 @@ func Listen(locAddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 }
 
 // set divert priority, for Listen will use p and p+1
-func Priority(p int16) relraw.Option {
+func Priority(p int16) rsocket.Option {
 	return func(c *config.Config) {
 		c.DivertPriorty = p
 	}
@@ -114,16 +114,8 @@ func (l *listener) Close() error {
 
 func (l *listener) Addr() netip.AddrPort { return l.addr }
 
-func (l *listener) Accept() (relraw.RawConn, error) {
-	var min, max int = header.TCPMinimumSize, header.TCPHeaderMaximumSize
-	if l.addr.Addr().Is4() {
-		min += header.IPv4MinimumSize
-		max += header.IPv4MaximumHeaderSize
-	} else {
-		min += header.IPv6MinimumSize
-		max += header.IPv6MinimumSize
-	}
-
+func (l *listener) Accept() (rsocket.RawConn, error) {
+	var min, max = tcpSynSizeRange(l.addr.Addr().Is4())
 	var addr divert.Address
 
 	var b = make([]byte, max)
@@ -229,7 +221,7 @@ type conn struct {
 
 	injectAddr *divert.Address
 
-	ipstack *relraw.IPStack
+	ipstack *rsocket.IPStack
 
 	closeFn closeCallback
 }
@@ -241,10 +233,10 @@ var outboundAddr = func() *divert.Address {
 	return addr
 }()
 
-var _ relraw.RawConn = (*conn)(nil)
+var _ rsocket.RawConn = (*conn)(nil)
 
-func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) {
-	cfg := relraw.Options(opts...)
+func Connect(laddr, raddr netip.AddrPort, opts ...rsocket.Option) (*conn, error) {
+	cfg := rsocket.Options(opts...)
 
 	tcp, laddr, err := internal.BindLocal(laddr, cfg.UsedPort)
 	if err != nil {
@@ -309,12 +301,13 @@ func (c *conn) init(priority int16, complete bool, ipOpts *ipstack.Options) (err
 		)
 	}
 
+	// todo: divert support ctxPeriod option
 	if c.raw, err = divert.Open(filter, divert.Network, priority, 0); err != nil {
 		c.Close()
 		return err
 	}
 
-	if c.ipstack, err = relraw.NewIPStack(
+	if c.ipstack, err = rsocket.NewIPStack(
 		c.laddr.Addr(), c.raddr.Addr(),
 		header.TCPProtocolNumber,
 		ipOpts.Unmarshal(),
@@ -342,7 +335,7 @@ func (c *conn) Read(ip []byte) (n int, err error) {
 	return n, err
 }
 
-func (c *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
+func (c *conn) ReadCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	b := p.Data()
 	n, err := c.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	if err != nil {
@@ -375,7 +368,7 @@ func (c *conn) Write(ip []byte) (n int, err error) {
 	return c.raw.Send(ip, outboundAddr)
 }
 
-func (c *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
+func (c *conn) WriteCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
 	if debug.Debug() {
 		test.ValidIP(test.T(), p.Data())
@@ -396,7 +389,7 @@ func (c *conn) Inject(ip []byte) (err error) {
 	return err
 }
 
-func (c *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
+func (c *conn) InjectCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	c.ipstack.AttachInbound(p)
 
 	if debug.Debug() {

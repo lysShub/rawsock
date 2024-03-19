@@ -10,7 +10,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/lysShub/relraw/internal/config"
+	"github.com/lysShub/rsocket/internal/config"
 	"golang.org/x/net/bpf"
 	"golang.org/x/sys/unix"
 )

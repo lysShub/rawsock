@@ -16,13 +16,13 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/lysShub/relraw"
-	"github.com/lysShub/relraw/internal"
-	"github.com/lysShub/relraw/internal/bpf"
-	"github.com/lysShub/relraw/internal/config"
-	"github.com/lysShub/relraw/internal/config/ipstack"
-	"github.com/lysShub/relraw/test"
-	"github.com/lysShub/relraw/test/debug"
+	"github.com/lysShub/rsocket"
+	"github.com/lysShub/rsocket/internal"
+	"github.com/lysShub/rsocket/internal/bpf"
+	"github.com/lysShub/rsocket/internal/config"
+	"github.com/lysShub/rsocket/internal/config/ipstack"
+	"github.com/lysShub/rsocket/test"
+	"github.com/lysShub/rsocket/test/debug"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
@@ -42,11 +42,11 @@ type listener struct {
 	closedConnsMu sync.RWMutex
 }
 
-var _ relraw.Listener = (*listener)(nil)
+var _ rsocket.Listener = (*listener)(nil)
 
-func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
+func Listen(laddr netip.AddrPort, opts ...rsocket.Option) (*listener, error) {
 	var l = &listener{
-		cfg:   relraw.Options(opts...),
+		cfg:   rsocket.Options(opts...),
 		conns: make(map[netip.AddrPort]uint32, 16),
 	}
 
@@ -103,15 +103,8 @@ func (l *listener) Addr() netip.AddrPort {
 }
 
 // todo: not support private proto that not start with tcp SYN flag
-func (l *listener) Accept() (relraw.RawConn, error) {
-	var min, max int = header.TCPMinimumSize, header.TCPHeaderMaximumSize
-	if l.addr.Addr().Is4() {
-		min += header.IPv4MinimumSize
-		max += header.IPv4MaximumHeaderSize
-	} else {
-		min += header.IPv6MinimumSize
-		max += header.IPv6MinimumSize
-	}
+func (l *listener) Accept() (rsocket.RawConn, error) {
+	var min, max = tcpSynSizeRange(l.addr.Addr().Is4())
 
 	var b = make([]byte, max)
 	for {
@@ -150,7 +143,7 @@ func (l *listener) Accept() (relraw.RawConn, error) {
 		if newConn {
 			c := newConnect(
 				l.addr, raddr, isn,
-				l.deleteConn, l.cfg.CtxCancelDelay,
+				l.deleteConn, l.cfg.CtxPeriod,
 			)
 			return c, c.init(l.cfg.CompleteCheck, l.cfg.IPStackCfg)
 		}
@@ -210,21 +203,21 @@ type conn struct {
 
 	raw *net.IPConn
 
-	ipstack *relraw.IPStack
+	ipstack *rsocket.IPStack
 
 	ctxCancelDelay time.Duration
 
 	closeFn closeCallback
 }
 
-var _ relraw.RawConn = (*conn)(nil)
+var _ rsocket.RawConn = (*conn)(nil)
 
-func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) {
-	cfg := relraw.Options(opts...)
+func Connect(laddr, raddr netip.AddrPort, opts ...rsocket.Option) (*conn, error) {
+	cfg := rsocket.Options(opts...)
 
 	var c = newConnect(
 		laddr, raddr, 0,
-		nil, cfg.CtxCancelDelay,
+		nil, cfg.CtxPeriod,
 	)
 	var err error
 
@@ -237,13 +230,13 @@ func Connect(laddr, raddr netip.AddrPort, opts ...relraw.Option) (*conn, error) 
 	return c, c.init(cfg.CompleteCheck, cfg.IPStackCfg)
 }
 
-func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallback, ctxDelay time.Duration) *conn {
+func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallback, ctxPeriod time.Duration) *conn {
 	return &conn{
 		laddr:          laddr,
 		raddr:          raddr,
 		isn:            isn,
 		closeFn:        closeCall,
-		ctxCancelDelay: ctxDelay,
+		ctxCancelDelay: ctxPeriod,
 	}
 }
 
@@ -288,7 +281,7 @@ func (c *conn) init(complete bool, ipCfg *ipstack.Options) (err error) {
 		return err
 	}
 
-	if c.ipstack, err = relraw.NewIPStack(
+	if c.ipstack, err = rsocket.NewIPStack(
 		c.laddr.Addr(), c.raddr.Addr(),
 		header.TCPProtocolNumber,
 		ipCfg.Unmarshal(),
@@ -316,7 +309,7 @@ func (c *conn) Read(ip []byte) (n int, err error) {
 	return n, err
 }
 
-func (c *conn) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
+func (c *conn) ReadCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	b := p.Data()
 	b = b[:cap(b)]
 
@@ -368,7 +361,7 @@ func (c *conn) Write(ip []byte) (n int, err error) {
 	return c.raw.Write(ip)
 }
 
-func (c *conn) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
+func (c *conn) WriteCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
 	if debug.Debug() {
 		test.ValidIP(test.T(), p.Data())
@@ -386,7 +379,7 @@ func (c *conn) Inject(ip []byte) (err error) {
 	return err
 }
 
-func (c *conn) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
+func (c *conn) InjectCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	c.ipstack.AttachInbound(p)
 	if debug.Debug() {
 		test.ValidIP(test.T(), p.Data())
@@ -403,7 +396,7 @@ func (c *conn) Close() error {
 		}
 	}
 	if c.tcp != nil {
-		if e := c.Close(); e != nil {
+		if e := c.tcp.Close(); e != nil {
 			err = e
 		}
 	}

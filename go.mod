@@ -1,4 +1,4 @@
-module github.com/lysShub/relraw
+module github.com/lysShub/rsocket
 
 go 1.21
 

@@ -1,10 +1,10 @@
-package relraw
+package rsocket
 
 import (
 	"time"
 
-	"github.com/lysShub/relraw/internal/config"
-	"github.com/lysShub/relraw/internal/config/ipstack"
+	"github.com/lysShub/rsocket/internal/config"
+	"github.com/lysShub/rsocket/internal/config/ipstack"
 )
 
 type Option func(*config.Config)

@@ -12,9 +12,9 @@ import (
 	"bou.ke/monkey"
 	"github.com/pkg/errors"
 
-	"github.com/lysShub/relraw"
-	"github.com/lysShub/relraw/test"
-	"github.com/lysShub/relraw/test/debug"
+	"github.com/lysShub/rsocket"
+	"github.com/lysShub/rsocket/test"
+	"github.com/lysShub/rsocket/test/debug"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -90,6 +90,7 @@ func Test_Connect(t *testing.T) {
 			header.IPv4ProtocolNumber,
 		)
 		require.NoError(t, err)
+		defer conn.Close()
 
 		req := []byte("hello world")
 		_, err = conn.Write(req)
@@ -164,7 +165,7 @@ func Test_Context(t *testing.T) {
 	)
 
 	const delay = time.Millisecond * 100
-	conn, err := Connect(caddr, saddr, relraw.CtxDelay(delay))
+	conn, err := Connect(caddr, saddr, rsocket.CtxPeriod(delay))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -173,7 +174,7 @@ func Test_Context(t *testing.T) {
 		cancel()
 	}()
 
-	p := relraw.ToPacket(0, make([]byte, 1536))
+	p := rsocket.ToPacket(0, make([]byte, 1536))
 	s := time.Now()
 	err = conn.ReadCtx(ctx, p)
 	require.True(t, errors.Is(err, context.Canceled))
@@ -199,7 +200,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.WriteCtx(context.Background(), relraw.ToPacket(0, tcp))
+			err = raw.WriteCtx(context.Background(), rsocket.ToPacket(0, tcp))
 			require.NoError(t, err)
 		}()
 
@@ -228,7 +229,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.WriteCtx(context.Background(), relraw.ToPacket(0, tcp))
+			err = raw.WriteCtx(context.Background(), rsocket.ToPacket(0, tcp))
 			require.NoError(t, err)
 		}()
 
@@ -236,7 +237,7 @@ func Test_Complete_Check(t *testing.T) {
 		require.NoError(t, err)
 		defer raw.Close()
 
-		var p = relraw.ToPacket(0, make([]byte, 39))
+		var p = rsocket.ToPacket(0, make([]byte, 39))
 		err = raw.ReadCtx(context.Background(), p)
 		require.True(t, errors.Is(err, io.ErrShortBuffer))
 	})

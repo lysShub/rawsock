@@ -7,7 +7,7 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/lysShub/relraw/internal/config"
+	"github.com/lysShub/rsocket/internal/config"
 	pkge "github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )

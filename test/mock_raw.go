@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lysShub/relraw"
-	"github.com/lysShub/relraw/internal/config"
+	"github.com/lysShub/rsocket"
+	"github.com/lysShub/rsocket/internal/config"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -24,7 +24,7 @@ type MockRaw struct {
 	t             require.TestingT
 	proto         tcpip.TransportProtocolNumber
 	local, remote netip.AddrPort
-	ip            *relraw.IPStack
+	ip            *rsocket.IPStack
 
 	in       chan header.IPv4
 	out      chan<- header.IPv4
@@ -52,7 +52,7 @@ var defaultOptions = options{
 
 type Option func(*options)
 
-func RawOpts(opts ...relraw.Option) Option {
+func RawOpts(opts ...rsocket.Option) Option {
 	return func(o *options) {
 		for _, opt := range opts {
 			opt(&o.Config)
@@ -106,7 +106,7 @@ func NewMockRaw(
 	for _, opt := range opts {
 		opt(&client.options)
 	}
-	client.ip, err = relraw.NewIPStack(
+	client.ip, err = rsocket.NewIPStack(
 		client.local.Addr(), client.remote.Addr(),
 		proto,
 		client.options.Config.IPStackCfg.Unmarshal(),
@@ -126,7 +126,7 @@ func NewMockRaw(
 	for _, opt := range opts {
 		opt(&client.options)
 	}
-	server.ip, err = relraw.NewIPStack(
+	server.ip, err = rsocket.NewIPStack(
 		server.local.Addr(), server.remote.Addr(),
 		proto,
 		server.options.Config.IPStackCfg.Unmarshal(),
@@ -140,7 +140,7 @@ func NewMockRaw(
 	return client, server
 }
 
-var _ relraw.RawConn = (*MockRaw)(nil)
+var _ rsocket.RawConn = (*MockRaw)(nil)
 
 func (r *MockRaw) Close() error {
 	r.closedMu.Lock()
@@ -165,7 +165,7 @@ func (r *MockRaw) Read(ip []byte) (n int, err error) {
 	r.ip.UpdateInbound(ip[:n])
 	return n, nil
 }
-func (r *MockRaw) ReadCtx(ctx context.Context, p *relraw.Packet) (err error) {
+func (r *MockRaw) ReadCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	var ip header.IPv4
 	ok := false
 	select {
@@ -209,7 +209,7 @@ func (r *MockRaw) Write(ip []byte) (n int, err error) {
 
 	return len(ip), nil
 }
-func (r *MockRaw) WriteCtx(ctx context.Context, p *relraw.Packet) (err error) {
+func (r *MockRaw) WriteCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	r.closedMu.RLock()
 	defer r.closedMu.RUnlock()
 	if r.closed {
@@ -248,7 +248,7 @@ func (r *MockRaw) Inject(ip []byte) (err error) {
 	r.in <- tmp
 	return nil
 }
-func (r *MockRaw) InjectCtx(ctx context.Context, p *relraw.Packet) (err error) {
+func (r *MockRaw) InjectCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	r.ip.AttachInbound(p)
 	r.valid(p.Data(), true)
 
@@ -329,14 +329,14 @@ func (r *MockRaw) validAddr(ip header.IPv4, inbound bool) {
 
 type MockListener struct {
 	addr netip.AddrPort
-	raws chan relraw.RawConn
+	raws chan rsocket.RawConn
 
 	closed atomic.Bool
 }
 
-var _ relraw.Listener = (*MockListener)(nil)
+var _ rsocket.Listener = (*MockListener)(nil)
 
-func NewMockListener(t require.TestingT, raws ...relraw.RawConn) *MockListener {
+func NewMockListener(t require.TestingT, raws ...rsocket.RawConn) *MockListener {
 	var addr = raws[0].LocalAddr()
 	for _, e := range raws {
 		require.Equal(t, addr, e.LocalAddr())
@@ -344,7 +344,7 @@ func NewMockListener(t require.TestingT, raws ...relraw.RawConn) *MockListener {
 
 	var l = &MockListener{
 		addr: addr,
-		raws: make(chan relraw.RawConn, len(raws)),
+		raws: make(chan rsocket.RawConn, len(raws)),
 	}
 	for _, e := range raws {
 		l.raws <- e
@@ -352,7 +352,7 @@ func NewMockListener(t require.TestingT, raws ...relraw.RawConn) *MockListener {
 	return l
 }
 
-func (l *MockListener) Accept() (relraw.RawConn, error) {
+func (l *MockListener) Accept() (rsocket.RawConn, error) {
 	raw, ok := <-l.raws
 	if !ok || l.closed.Load() {
 		return nil, os.ErrClosed

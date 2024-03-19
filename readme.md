@@ -1,6 +1,6 @@
 # building...
 
-# netpack
+# rsocket
 
 **golang transport layer read/write.**
 

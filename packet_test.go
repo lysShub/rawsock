@@ -1,4 +1,4 @@
-package relraw
+package rsocket
 
 import (
 	"testing"

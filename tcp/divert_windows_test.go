@@ -11,9 +11,9 @@ import (
 
 	"bou.ke/monkey"
 	"github.com/lysShub/divert-go"
-	"github.com/lysShub/relraw"
-	"github.com/lysShub/relraw/test"
-	"github.com/lysShub/relraw/test/debug"
+	"github.com/lysShub/rsocket"
+	"github.com/lysShub/rsocket/test"
+	"github.com/lysShub/rsocket/test/debug"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -138,7 +138,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.WriteCtx(context.Background(), relraw.ToPacket(0, tcp))
+			err = raw.WriteCtx(context.Background(), rsocket.ToPacket(0, tcp))
 			require.NoError(t, err)
 		}()
 
@@ -167,7 +167,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.WriteCtx(context.Background(), relraw.ToPacket(0, tcp))
+			err = raw.WriteCtx(context.Background(), rsocket.ToPacket(0, tcp))
 			require.NoError(t, err)
 		}()
 
@@ -175,7 +175,7 @@ func Test_Complete_Check(t *testing.T) {
 		require.NoError(t, err)
 		defer raw.Close()
 
-		var p = relraw.ToPacket(0, make([]byte, 39))
+		var p = rsocket.ToPacket(0, make([]byte, 39))
 		err = raw.ReadCtx(context.Background(), p)
 		require.True(t, errors.Is(err, io.ErrShortBuffer), err)
 	})

@@ -1,13 +1,13 @@
-package relraw_test
+package rsocket_test
 
 import (
 	"math/rand"
 	"net/netip"
 	"testing"
 
-	"github.com/lysShub/relraw"
-	"github.com/lysShub/relraw/internal/config/ipstack"
-	"github.com/lysShub/relraw/test"
+	"github.com/lysShub/rsocket"
+	"github.com/lysShub/rsocket/internal/config/ipstack"
+	"github.com/lysShub/rsocket/test"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -41,11 +41,11 @@ func Test_IP_Stack_TCP(t *testing.T) {
 
 	for _, suit := range suits {
 		for _, opts := range [][]ipstack.Option{
-			{relraw.UpdateChecksum},
-			{relraw.ReCalcChecksum},
+			{rsocket.UpdateChecksum},
+			{rsocket.ReCalcChecksum},
 		} {
 
-			s, err := relraw.NewIPStack(
+			s, err := rsocket.NewIPStack(
 				suit.src, suit.dst,
 				header.TCPProtocolNumber,
 				opts...,
@@ -71,7 +71,7 @@ func Test_IP_Stack_TCP(t *testing.T) {
 			ip := make([]byte, s.Size()+len(tcp))
 			copy(ip[s.Size():], tcp)
 
-			s.AttachOutbound(relraw.ToPacket(s.Size(), ip))
+			s.AttachOutbound(rsocket.ToPacket(s.Size(), ip))
 
 			var network header.Network
 			if suit.src.Is4() {
@@ -103,19 +103,19 @@ func Test_IP_Stack_UDP(t *testing.T) {
 		for i := 0; i < 2; i++ {
 
 			var err error
-			var s *relraw.IPStack
+			var s *rsocket.IPStack
 			if i == 0 {
-				s, err = relraw.NewIPStack(
+				s, err = rsocket.NewIPStack(
 					suit.src, suit.dst,
 					header.UDPProtocolNumber,
-					relraw.UpdateChecksum,
+					rsocket.UpdateChecksum,
 				)
 				require.NoError(t, err)
 			} else {
-				s, err = relraw.NewIPStack(
+				s, err = rsocket.NewIPStack(
 					suit.src, suit.dst,
 					header.UDPProtocolNumber,
-					relraw.ReCalcChecksum,
+					rsocket.ReCalcChecksum,
 				)
 				require.NoError(t, err)
 			}
@@ -135,7 +135,7 @@ func Test_IP_Stack_UDP(t *testing.T) {
 			ip := make([]byte, s.Size()+len(udp))
 			copy(ip[s.Size():], udp)
 
-			s.AttachOutbound(relraw.ToPacket(s.Size(), ip))
+			s.AttachOutbound(rsocket.ToPacket(s.Size(), ip))
 
 			var network header.Network
 			if suit.src.Is4() {

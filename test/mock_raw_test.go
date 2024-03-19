@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lysShub/relraw"
+	"github.com/lysShub/rsocket"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -90,7 +90,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		defer rawClient.Close()
 		defer rawServer.Close()
 
-		p1 := relraw.NewPacket(20, 22)
+		p1 := rsocket.NewPacket(20, 22)
 		tcphdr := header.TCP(p1.Data())
 		tcphdr.Encode(&header.TCPFields{DataOffset: 20})
 		tcphdr.Payload()[0] = 1
@@ -100,7 +100,7 @@ func Test_Mock_RawConn(t *testing.T) {
 
 		p1.Data()[20] = 2
 
-		p2 := relraw.NewPacket(0, 64)
+		p2 := rsocket.NewPacket(0, 64)
 		err = rawServer.ReadCtx(context.Background(), p2)
 		require.NoError(t, err)
 		require.Equal(t, byte(1), header.TCP(p2.Data()).Payload()[0])
