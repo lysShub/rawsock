@@ -34,8 +34,7 @@ type listener struct {
 
 	tcp *net.TCPListener
 
-	raw             *net.IPConn
-	minIPPacketSize int
+	raw *net.IPConn
 
 	// AddrPort:ISN
 	conns map[netip.AddrPort]uint32
@@ -67,7 +66,6 @@ func Listen(laddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 		l.Close()
 		return nil, err
 	}
-	l.minIPPacketSize = internal.MinIPPacketSize(laddr.Addr(), header.TCPProtocolNumber)
 
 	raw, err := l.raw.SyscallConn()
 	if err != nil {
@@ -107,14 +105,21 @@ func (l *listener) Addr() netip.AddrPort {
 
 // todo: not support private proto that not start with tcp SYN flag
 func (l *listener) Accept() (relraw.RawConn, error) {
+	var min, max int = header.TCPMinimumSize, header.TCPHeaderMaximumSize
+	if l.addr.Addr().Is4() {
+		min += header.IPv4MinimumSize
+		max += header.IPv4MaximumHeaderSize
+	} else {
+		min += header.IPv6MinimumSize
+		max += header.IPv6MinimumSize
+	}
 
-	var b = make([]byte, l.cfg.MTU)
+	var b = make([]byte, max)
 	for {
-		b = b[:cap(b)]
-		n, err := l.raw.Read(b)
+		n, err := l.raw.Read(b[:max])
 		if err != nil {
 			return nil, err
-		} else if n < l.minIPPacketSize {
+		} else if n < min {
 			return nil, fmt.Errorf("recved invalid ip packet, bytes %d", n)
 		}
 		l.purgeOne()

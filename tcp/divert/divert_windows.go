@@ -46,8 +46,7 @@ type listener struct {
 
 	tcp windows.Handle
 
-	raw             *divert.Handle
-	minIPPacketSize int
+	raw *divert.Handle
 
 	// priority int16
 
@@ -91,7 +90,6 @@ func Listen(locAddr netip.AddrPort, opts ...relraw.Option) (*listener, error) {
 		l.Close()
 		return nil, err
 	}
-	l.minIPPacketSize = internal.MinIPPacketSize(l.addr.Addr(), header.TCPProtocolNumber)
 	return l, err
 }
 
@@ -120,15 +118,23 @@ func (l *listener) Close() error {
 func (l *listener) Addr() netip.AddrPort { return l.addr }
 
 func (l *listener) Accept() (relraw.RawConn, error) {
+	var min, max int = header.TCPMinimumSize, header.TCPHeaderMaximumSize
+	if l.addr.Addr().Is4() {
+		min += header.IPv4MinimumSize
+		max += header.IPv4MaximumHeaderSize
+	} else {
+		min += header.IPv6MinimumSize
+		max += header.IPv6MinimumSize
+	}
+
 	var addr divert.Address
 
-	var b = make([]byte, l.cfg.MTU)
+	var b = make([]byte, max)
 	for {
-		b = b[:cap(b)]
-		n, err := l.raw.Recv(b, &addr)
+		n, err := l.raw.Recv(b[:max], &addr)
 		if err != nil {
 			return nil, err
-		} else if n < l.minIPPacketSize {
+		} else if n < min {
 			return nil, fmt.Errorf("recved invalid ip packet, bytes %d", n)
 		}
 		l.purgeOne()

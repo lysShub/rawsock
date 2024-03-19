@@ -9,7 +9,6 @@ import (
 
 type Config struct {
 	UsedPort       bool
-	MTU            int // todo: remove, only use by listener
 	CtxCancelDelay time.Duration
 	CompleteCheck  bool // check ip packet is complete
 	IPStackCfg     *ipstack.Options
@@ -20,7 +19,6 @@ type Config struct {
 func Default() *Config {
 	return &Config{
 		UsedPort:       false,
-		MTU:            1536,
 		CtxCancelDelay: time.Millisecond * 100,
 		CompleteCheck:  true,
 		IPStackCfg:     ipstack.Default(),

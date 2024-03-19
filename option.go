@@ -24,14 +24,6 @@ func UsedPort() Option {
 	}
 }
 
-func MTU(mtu int) Option {
-	return func(c *config.Config) {
-		if mtu > 0 {
-			c.MTU = mtu
-		}
-	}
-}
-
 func CtxDelay(delay time.Duration) Option {
 	return func(c *config.Config) {
 		if delay > 0 {
