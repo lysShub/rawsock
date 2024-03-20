@@ -113,7 +113,9 @@ func Test_Connect(t *testing.T) {
 			caddr = netip.AddrPortFrom(tt.Addr2, test.RandPort())
 		)
 
+		var retCh = make(chan struct{})
 		go func() {
+			defer func() { retCh <- struct{}{} }()
 			conn, err := net.ListenIP("ip:tcp", &net.IPAddr{IP: caddr.Addr().AsSlice()})
 			require.NoError(t, err)
 			defer conn.Close()
@@ -133,6 +135,12 @@ func Test_Connect(t *testing.T) {
 			}
 
 			for {
+				select {
+				case <-retCh:
+					return
+				default:
+				}
+
 				for _, b := range noises {
 					_, err := conn.WriteToIP(header.IPv4(b).Payload(), &net.IPAddr{IP: saddr.Addr().AsSlice()})
 					require.NoError(t, err)
@@ -146,15 +154,19 @@ func Test_Connect(t *testing.T) {
 		defer raw.Close()
 
 		for i := 0; i < 3; i++ {
-			var b = make([]byte, 1536)
-			n, err := raw.Read(b)
+			var b = rsocket.ToPacket(0, make([]byte, 1536))
+			err := raw.Read(context.Background(), b)
 			require.NoError(t, err)
-			iphdr := header.IPv4(b[:n])
+			b.SetHead(0) // recover to ip packet
 
+			iphdr := header.IPv4(b.Data())
 			tcpHdr := header.TCP(iphdr.Payload())
 			require.Equal(t, caddr.Port(), tcpHdr.SourcePort())
 			require.Equal(t, saddr.Port(), tcpHdr.DestinationPort())
 		}
+
+		retCh <- struct{}{}
+		<-retCh
 	})
 }
 
@@ -176,7 +188,7 @@ func Test_Context(t *testing.T) {
 
 	p := rsocket.ToPacket(0, make([]byte, 1536))
 	s := time.Now()
-	err = conn.ReadCtx(ctx, p)
+	err = conn.Read(ctx, p)
 	require.True(t, errors.Is(err, context.Canceled))
 	require.Less(t, time.Since(s), time.Second+2*delay)
 }
@@ -200,7 +212,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.WriteCtx(context.Background(), rsocket.ToPacket(0, tcp))
+			err = raw.Write(context.Background(), rsocket.ToPacket(0, tcp))
 			require.NoError(t, err)
 		}()
 
@@ -208,9 +220,8 @@ func Test_Complete_Check(t *testing.T) {
 		require.NoError(t, err)
 		defer raw.Close()
 
-		var ip = make([]byte, 39)
-		n, err := raw.Read(ip)
-		require.Zero(t, n)
+		var ip = rsocket.ToPacket(0, make([]byte, 39))
+		err = raw.Read(context.Background(), ip)
 		require.True(t, errors.Is(err, io.ErrShortBuffer))
 	})
 
@@ -229,7 +240,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.WriteCtx(context.Background(), rsocket.ToPacket(0, tcp))
+			err = raw.Write(context.Background(), rsocket.ToPacket(0, tcp))
 			require.NoError(t, err)
 		}()
 
@@ -238,7 +249,7 @@ func Test_Complete_Check(t *testing.T) {
 		defer raw.Close()
 
 		var p = rsocket.ToPacket(0, make([]byte, 39))
-		err = raw.ReadCtx(context.Background(), p)
+		err = raw.Read(context.Background(), p)
 		require.True(t, errors.Is(err, io.ErrShortBuffer))
 	})
 }

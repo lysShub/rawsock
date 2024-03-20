@@ -109,8 +109,22 @@ func CreateTunTuple() (*TunTuple, error) {
 
 		if i == 0 {
 			tt.ap1 = ap
+			if err = luid.AddRoute(
+				netip.PrefixFrom(addrs[1], 32),
+				netip.AddrFrom4([4]byte{0, 0, 0, 0}),
+				30,
+			); err != nil {
+				return nil, err
+			}
 		} else {
 			tt.ap2 = ap
+			if err = luid.AddRoute(
+				netip.PrefixFrom(addrs[0], 32),
+				netip.AddrFrom4([4]byte{0, 0, 0, 0}),
+				5,
+			); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return tt, tt.start()

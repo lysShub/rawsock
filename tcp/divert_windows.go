@@ -319,23 +319,7 @@ func (c *conn) init(priority int16, complete bool, ipOpts *ipstack.Options) (err
 	return nil
 }
 
-func (c *conn) Read(ip []byte) (n int, err error) {
-	n, err = c.raw.Recv(ip, nil)
-	if err == nil {
-		c.ipstack.UpdateInbound(ip[:n])
-
-		if debug.Debug() {
-			test.ValidIP(test.T(), ip[:n])
-		}
-	}
-
-	if c.complete && !internal.CompleteCheck(c.ipstack.IPv4(), ip) {
-		return 0, errors.WithStack(io.ErrShortBuffer)
-	}
-	return n, err
-}
-
-func (c *conn) ReadCtx(ctx context.Context, p *rsocket.Packet) (err error) {
+func (c *conn) Read(ctx context.Context, p *rsocket.Packet) (err error) {
 	b := p.Data()
 	n, err := c.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	if err != nil {
@@ -359,16 +343,7 @@ func (c *conn) ReadCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	return nil
 }
 
-func (c *conn) Write(ip []byte) (n int, err error) {
-	if debug.Debug() {
-		test.ValidIP(test.T(), ip)
-	}
-
-	c.ipstack.UpdateOutbound(ip)
-	return c.raw.Send(ip, outboundAddr)
-}
-
-func (c *conn) WriteCtx(ctx context.Context, p *rsocket.Packet) (err error) {
+func (c *conn) Write(ctx context.Context, p *rsocket.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
 	if debug.Debug() {
 		test.ValidIP(test.T(), p.Data())
@@ -379,17 +354,7 @@ func (c *conn) WriteCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	return err
 }
 
-func (c *conn) Inject(ip []byte) (err error) {
-	if debug.Debug() {
-		test.ValidIP(test.T(), ip)
-	}
-
-	c.ipstack.UpdateInbound(ip)
-	_, err = c.raw.Send(ip, c.injectAddr)
-	return err
-}
-
-func (c *conn) InjectCtx(ctx context.Context, p *rsocket.Packet) (err error) {
+func (c *conn) Inject(ctx context.Context, p *rsocket.Packet) (err error) {
 	c.ipstack.AttachInbound(p)
 
 	if debug.Debug() {

@@ -20,25 +20,15 @@ type Listener interface {
 type RawConn interface {
 	Close() error
 
-	// Read read ip packet from remote address
-	Read(ip []byte) (n int, err error)
+	// ReadCtx read tcp/udp/icmp packet from remote address, and
+	// can get ip packet by p.SetHead(old)
+	Read(ctx context.Context, pkt *Packet) (err error)
 
-	// ReadCtx read tcp/udp/icmp packet from remote address
-	ReadCtx(ctx context.Context, p *Packet) (err error)
+	// WriteCtx write tcp/udp/icmp packet to remote address
+	Write(ctx context.Context, pkt *Packet) (err error)
 
-	// Write write ip packet to remote
-	Write(ip []byte) (n int, err error)
-
-	// WriteCtx write tcp/udp/icmp packet to remote address, tcp/udp packet
-	// should set checksum that without pseudo checksum
-	WriteCtx(ctx context.Context, p *Packet) (err error)
-
-	// Inject inject ip packet to local address
-	Inject(ip []byte) (err error)
-
-	// InjectCtx inject tcp/udp/icmp packet to local address, tcp/udp packet
-	// should set checksum that without pseudo checksum
-	InjectCtx(ctx context.Context, p *Packet) (err error)
+	// InjectCtx inject tcp/udp/icmp packet to local address
+	Inject(ctx context.Context, pkt *Packet) (err error)
 
 	LocalAddr() netip.AddrPort
 	RemoteAddr() netip.AddrPort

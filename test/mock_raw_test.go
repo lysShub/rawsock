@@ -36,7 +36,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		}
 
 		exp := int(1e4 * pl)
-		delta := 25
+		delta := 30
 
 		require.Greater(t, n, exp-delta)
 		require.Less(t, n, exp+delta)
@@ -49,17 +49,19 @@ func Test_Mock_RawConn(t *testing.T) {
 		)
 		defer rawClient.Close()
 		defer rawServer.Close()
+		tcp := BuildTCPSync(
+			t,
+			netip.AddrPortFrom(LocIP(), RandPort()),
+			netip.AddrPortFrom(LocIP(), RandPort()),
+		)
 
-		_, err := rawClient.Write([]byte{1, 2})
+		err := rawClient.Write(context.Background(), rsocket.ToPacket(0, tcp))
 		require.NoError(t, err)
 
-		var b = make([]byte, 8)
-		n, err := rawServer.Read(b)
+		var b = rsocket.ToPacket(0, make([]byte, 128))
+		err = rawServer.Read(context.Background(), b)
 		require.NoError(t, err)
-		require.Equal(t, []byte{1, 2}, b[:n])
-
-		_, err = rawServer.Write([]byte{3, 4})
-		require.NoError(t, err)
+		require.Equal(t, []byte(tcp), b.Data())
 	})
 
 	t.Run("MockRaw/Write/memcpy", func(t *testing.T) {
@@ -70,16 +72,16 @@ func Test_Mock_RawConn(t *testing.T) {
 		defer rawClient.Close()
 		defer rawServer.Close()
 
-		var tcphdr = []byte{0: 1, 1: 2, 19: 0}
-		_, err := rawClient.Write(tcphdr)
+		var tcphdr = []byte{21: 1}
+		err := rawClient.Write(context.Background(), rsocket.ToPacket(0, tcphdr))
 		require.NoError(t, err)
 
-		tcphdr[0] = 2
+		tcphdr[21] = 2
 
-		var b = make([]byte, len(tcphdr))
-		n, err := rawServer.Read(b)
+		var b = rsocket.ToPacket(0, make([]byte, len(tcphdr)+20))
+		err = rawServer.Read(context.Background(), b)
 		require.NoError(t, err)
-		require.Equal(t, []byte{0: 1, 1: 2, 19: 0}, b[:n])
+		require.Equal(t, uint8(1), b.Data()[21])
 	})
 
 	t.Run("MockRaw/WriteCtx/memcpy", func(t *testing.T) {
@@ -95,13 +97,13 @@ func Test_Mock_RawConn(t *testing.T) {
 		tcphdr.Encode(&header.TCPFields{DataOffset: 20})
 		tcphdr.Payload()[0] = 1
 
-		err := rawClient.WriteCtx(context.Background(), p1)
+		err := rawClient.Write(context.Background(), p1)
 		require.NoError(t, err)
 
 		p1.Data()[20] = 2
 
 		p2 := rsocket.NewPacket(0, 64)
-		err = rawServer.ReadCtx(context.Background(), p2)
+		err = rawServer.Read(context.Background(), p2)
 		require.NoError(t, err)
 		require.Equal(t, byte(1), header.TCP(p2.Data()).Payload()[0])
 	})

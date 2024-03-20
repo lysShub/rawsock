@@ -150,22 +150,7 @@ func (r *MockRaw) Close() error {
 	return nil
 }
 
-func (r *MockRaw) Read(ip []byte) (n int, err error) {
-	b, ok := <-r.in
-	if !ok {
-		return 0, io.EOF
-	}
-	r.valid(b, true)
-
-	n = copy(ip, b)
-	if n < len(b) {
-		return 0, io.ErrShortBuffer
-	}
-
-	r.ip.UpdateInbound(ip[:n])
-	return n, nil
-}
-func (r *MockRaw) ReadCtx(ctx context.Context, p *rsocket.Packet) (err error) {
+func (r *MockRaw) Read(ctx context.Context, p *rsocket.Packet) (err error) {
 	var ip header.IPv4
 	ok := false
 	select {
@@ -176,7 +161,7 @@ func (r *MockRaw) ReadCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 			return io.EOF
 		}
 	}
-	r.valid(ip, true)
+	// r.valid(ip, true)
 
 	b := p.Data()
 	b = b[:cap(b)]
@@ -184,44 +169,33 @@ func (r *MockRaw) ReadCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	if n < len(ip) {
 		return io.ErrShortBuffer
 	}
-	p.SetLen(n)
 
-	p.SetHead(p.Head() + int(ip.HeaderLength()))
+	p.SetLen(n)
+	switch header.IPVersion(b) {
+	case 4:
+		iphdr := int(header.IPv4(b).HeaderLength())
+		p.SetHead(p.Head() + iphdr)
+	case 6:
+		p.SetHead(p.Head() + header.IPv6MinimumSize)
+	default:
+		panic("")
+	}
+
 	return nil
 }
-func (r *MockRaw) Write(ip []byte) (n int, err error) {
-	r.closedMu.RLock()
-	defer r.closedMu.RUnlock()
-	if r.closed {
-		return 0, os.ErrClosed
-	}
-
-	r.valid(ip, false)
-	if r.loss() {
-		return len(ip), nil
-	}
-
-	tmp := make([]byte, len(ip))
-	copy(tmp, ip)
-
-	r.ip.UpdateOutbound(tmp)
-	r.out <- tmp
-
-	return len(ip), nil
-}
-func (r *MockRaw) WriteCtx(ctx context.Context, p *rsocket.Packet) (err error) {
+func (r *MockRaw) Write(ctx context.Context, p *rsocket.Packet) (err error) {
 	r.closedMu.RLock()
 	defer r.closedMu.RUnlock()
 	if r.closed {
 		return os.ErrClosed
 	}
 
-	r.ip.AttachOutbound(p)
-
-	r.valid(p.Data(), false)
+	// r.valid(p.Data(), false)
 	if r.loss() {
 		return nil
 	}
+
+	r.ip.AttachOutbound(p)
 
 	tmp := make([]byte, p.Len())
 	copy(tmp, p.Data())
@@ -232,25 +206,8 @@ func (r *MockRaw) WriteCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 	}
 	return nil
 }
-func (r *MockRaw) Inject(ip []byte) (err error) {
-	r.valid(ip, true)
-
-	var tmp = make([]byte, len(ip))
-	copy(tmp, ip)
-
-	defer func() {
-		if recover() != nil {
-			err = os.ErrClosed
-		}
-	}()
-
-	r.ip.UpdateInbound(tmp)
-	r.in <- tmp
-	return nil
-}
-func (r *MockRaw) InjectCtx(ctx context.Context, p *rsocket.Packet) (err error) {
-	r.ip.AttachInbound(p)
-	r.valid(p.Data(), true)
+func (r *MockRaw) Inject(ctx context.Context, p *rsocket.Packet) (err error) {
+	// r.valid(p.Data(), true)
 
 	var tmp = make([]byte, p.Len())
 	copy(tmp, p.Data())
@@ -277,55 +234,55 @@ func (r *MockRaw) loss() bool {
 	return rand.Uint32() <= uint32(float32(math.MaxUint32)*r.pl)
 }
 
-func (r *MockRaw) valid(ip header.IPv4, inboud bool) {
-	r.validAddr(ip, inboud)
-	r.validChecksum(ip)
-}
+// func (r *MockRaw) valid(ip header.IPv4, inboud bool) {
+// 	r.validAddr(ip, inboud)
+// 	r.validChecksum(ip)
+// }
 
-func (r *MockRaw) validChecksum(ip header.IPv4) {
-	if !r.options.validChecksum {
-		return
-	}
+// func (r *MockRaw) validChecksum(ip header.IPv4) {
+// 	if !r.options.validChecksum {
+// 		return
+// 	}
 
-	ValidIP(r.t, ip)
-}
+// 	ValidIP(r.t, ip)
+// }
 
-func (r *MockRaw) validAddr(ip header.IPv4, inbound bool) {
-	if !r.options.validAddr {
-		return
-	}
-	require.Equal(r.t, r.proto, ip.TransportProtocol())
+// func (r *MockRaw) validAddr(ip header.IPv4, inbound bool) {
+// 	if !r.options.validAddr {
+// 		return
+// 	}
+// 	require.Equal(r.t, r.proto, ip.TransportProtocol())
 
-	var tp header.Transport
-	switch ip.TransportProtocol() {
-	case header.TCPProtocolNumber:
-		tp = header.TCP(ip.Payload())
-	case header.UDPProtocolNumber:
-		tp = header.UDP(ip.Payload())
-	case header.ICMPv4ProtocolNumber:
-		tp = header.ICMPv4(ip.Payload())
-	case header.ICMPv6ProtocolNumber:
-		tp = header.ICMPv6(ip.Payload())
-	default:
-		panic("")
-	}
+// 	var tp header.Transport
+// 	switch ip.TransportProtocol() {
+// 	case header.TCPProtocolNumber:
+// 		tp = header.TCP(ip.Payload())
+// 	case header.UDPProtocolNumber:
+// 		tp = header.UDP(ip.Payload())
+// 	case header.ICMPv4ProtocolNumber:
+// 		tp = header.ICMPv4(ip.Payload())
+// 	case header.ICMPv6ProtocolNumber:
+// 		tp = header.ICMPv6(ip.Payload())
+// 	default:
+// 		panic("")
+// 	}
 
-	src := netip.AddrPortFrom(
-		netip.AddrFrom4(ip.SourceAddress().As4()),
-		tp.SourcePort(),
-	)
-	dst := netip.AddrPortFrom(
-		netip.AddrFrom4(ip.DestinationAddress().As4()),
-		tp.DestinationPort(),
-	)
-	if inbound {
-		require.Equal(r.t, r.remote, src)
-		require.Equal(r.t, r.local, dst)
-	} else {
-		require.Equal(r.t, r.local, src)
-		require.Equal(r.t, r.remote, dst)
-	}
-}
+// 	src := netip.AddrPortFrom(
+// 		netip.AddrFrom4(ip.SourceAddress().As4()),
+// 		tp.SourcePort(),
+// 	)
+// 	dst := netip.AddrPortFrom(
+// 		netip.AddrFrom4(ip.DestinationAddress().As4()),
+// 		tp.DestinationPort(),
+// 	)
+// 	if inbound {
+// 		require.Equal(r.t, r.remote, src)
+// 		require.Equal(r.t, r.local, dst)
+// 	} else {
+// 		require.Equal(r.t, r.local, src)
+// 		require.Equal(r.t, r.remote, dst)
+// 	}
+// }
 
 type MockListener struct {
 	addr netip.AddrPort

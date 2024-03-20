@@ -188,6 +188,17 @@ func BuildRawTCP(t require.TestingT, laddr, raddr netip.AddrPort, payload []byte
 	return b
 }
 
+func StripIP(ip []byte) []byte {
+	switch header.IPVersion(ip) {
+	case 4:
+		return header.IPv4(ip).Payload()
+	case 6:
+		return header.IPv6(ip).Payload()
+	default:
+		return nil
+	}
+}
+
 func RandPort() uint16 {
 	p := uint16(rand.Uint32())
 	if p < 1024 {
@@ -300,14 +311,8 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw rs
 		var ip = rsocket.ToPacket(0, make([]byte, mtu))
 		sum := calcChecksum()
 		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
 			ip.Sets(0, mtu)
-			err := raw.ReadCtx(ctx, ip)
+			err := raw.Read(ctx, ip)
 			if errors.Is(err, context.Canceled) {
 				return
 			}
@@ -316,6 +321,7 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw rs
 			// recover tcp to ip packet
 			ip.SetHead(0)
 			sum(ip.Data()) // todo: TSO?
+			ValidIP(t, ip.Data())
 
 			// iphdr := header.IPv4(ip.Bytes())
 			// tcphdr := header.TCP(iphdr.Payload())
@@ -352,7 +358,7 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw rs
 			// 	tcphdr.Flags(),
 			// )
 
-			_, err := raw.Write(ip)
+			err := raw.Write(ctx, rsocket.ToPacket(0, StripIP(ip)))
 			require.NoError(t, err)
 		}
 	}()
@@ -363,7 +369,7 @@ func (u *ustack) Inject(ip []byte) {
 	u.link.InjectInbound(header.IPv4ProtocolNumber, pkb)
 }
 
-func (u *ustack) Read(ctx context.Context) []byte {
+func (u *ustack) Read(ctx context.Context) (ip []byte) {
 	pkb := u.link.ReadContext(ctx)
 	if pkb.IsNil() {
 		return nil // ctx cancel

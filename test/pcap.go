@@ -40,18 +40,10 @@ func WrapPcap(child rsocket.RawConn, file string) (*pcapWrap, error) {
 
 var _ rsocket.RawConn = (*pcapWrap)(nil)
 
-func (w *pcapWrap) Read(ip []byte) (n int, err error) {
-	n, err = w.RawConn.Read(ip)
-	if err != nil {
-		return 0, err
-	}
-	w.writePacket(ip[:n])
-	return n, nil
-}
-func (w *pcapWrap) ReadCtx(ctx context.Context, p *rsocket.Packet) (err error) {
+func (w *pcapWrap) Read(ctx context.Context, p *rsocket.Packet) (err error) {
 	oldH := p.Head()
 
-	err = w.RawConn.ReadCtx(ctx, p)
+	err = w.RawConn.Read(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -63,17 +55,8 @@ func (w *pcapWrap) ReadCtx(ctx context.Context, p *rsocket.Packet) (err error) {
 
 	return nil
 }
-
-func (w *pcapWrap) Write(ip []byte) (n int, err error) {
-	n, err = w.RawConn.Write(ip)
-	if err != nil {
-		return 0, err
-	}
-	w.writePacket(ip)
-	return n, nil
-}
-func (w *pcapWrap) WriteCtx(ctx context.Context, p *rsocket.Packet) (err error) {
-	err = w.RawConn.WriteCtx(ctx, p)
+func (w *pcapWrap) Write(ctx context.Context, p *rsocket.Packet) (err error) {
+	err = w.RawConn.Write(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -81,16 +64,8 @@ func (w *pcapWrap) WriteCtx(ctx context.Context, p *rsocket.Packet) (err error) 
 	w.writePacket(p.Data())
 	return nil
 }
-func (w *pcapWrap) Inject(ip []byte) (err error) {
-	err = w.RawConn.Inject(ip)
-	if err != nil {
-		return err
-	}
-	w.writePacket(ip)
-	return nil
-}
-func (w *pcapWrap) InjectCtx(ctx context.Context, p *rsocket.Packet) (err error) {
-	err = w.RawConn.InjectCtx(ctx, p)
+func (w *pcapWrap) Inject(ctx context.Context, p *rsocket.Packet) (err error) {
+	err = w.RawConn.Inject(ctx, p)
 	if err != nil {
 		return err
 	}
