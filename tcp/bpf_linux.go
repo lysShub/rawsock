@@ -12,7 +12,6 @@ import (
 	"os"
 	"sort"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/pkg/errors"
@@ -201,18 +200,13 @@ type conn struct {
 	tcp          *net.TCPListener
 	complete     bool
 
-	raw iconn
+	raw *net.IPConn
 
 	ipstack *rsocket.IPStack
 
 	ctxPeriod time.Duration
 
 	closeFn closeCallback
-}
-
-type iconn interface {
-	net.Conn
-	SyscallConn() (syscall.RawConn, error)
 }
 
 var _ rsocket.RawConn = (*conn)(nil)
@@ -246,57 +240,14 @@ func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallback
 }
 
 func (c *conn) init(complete bool, ipCfg *ipstack.Options) (err error) {
-	{
-		cr, err := net.DialIP(
-			"ip:tcp",
-			&net.IPAddr{IP: c.laddr.Addr().AsSlice(), Zone: c.laddr.Addr().Zone()},
-			&net.IPAddr{IP: c.raddr.Addr().AsSlice(), Zone: c.raddr.Addr().Zone()},
-		)
-		if err != nil {
-			c.Close()
-			return err
-		}
-		if err = cr.SetReadBuffer(1500); err != nil {
-			panic(err)
-		}
-		c.raw = cr
-	}
-
-	{
-		// pconn, err := net.ListenPacket("ip:tcp", c.laddr.Addr().String())
-		// if err != nil {
-		// 	panic(err)
-		// }
-
-		/* {
-			i, ok := pconn.(*net.IPConn)
-			if !ok {
-				panic(ok)
-			}
-			sr, err := i.SyscallConn()
-			if err != nil {
-				panic(err)
-			}
-
-			raw := ipv4.NewPacketConn(pconn)
-			c.raw = &PacketConnWrap{
-				PacketConn: raw,
-				raw:        sr,
-				remote:     &net.IPAddr{IP: c.raddr.Addr().AsSlice()},
-			}
-		} */
-
-		/*{
-			cr, err := ipv4.NewRawConn(pconn)
-			if err != nil {
-				panic(err)
-			}
-			cr.SetReadBuffer()
-			c.raw = &RawConnWrap{
-				RawConn: cr,
-				remote:  &net.IPAddr{IP: c.raddr.Addr().AsSlice()},
-			}
-		} */
+	c.raw, err = net.DialIP(
+		"ip:tcp",
+		&net.IPAddr{IP: c.laddr.Addr().AsSlice(), Zone: c.laddr.Addr().Zone()},
+		&net.IPAddr{IP: c.raddr.Addr().AsSlice(), Zone: c.raddr.Addr().Zone()},
+	)
+	if err != nil {
+		c.Close()
+		return err
 	}
 
 	raw, err := c.raw.SyscallConn()
