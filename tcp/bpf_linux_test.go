@@ -3,6 +3,7 @@ package tcp
 import (
 	"context"
 	"io"
+	"math/rand"
 	"net"
 	"net/netip"
 	"sync/atomic"
@@ -60,10 +61,14 @@ func Test_Connect(t *testing.T) {
 		var (
 			caddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
 			saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+			seed  = time.Now().UnixNano()
+			r     = rand.New(rand.NewSource(seed))
 		)
+		t.Log("seed: ", seed)
 
-		// todo: add noise
+		retCh := make(chan struct{})
 		go func() {
+			// todo: add noise
 			l, err := net.ListenTCP("tcp", test.TCPAddr(saddr))
 			require.NoError(t, err)
 			defer l.Close()
@@ -73,6 +78,7 @@ func Test_Connect(t *testing.T) {
 
 			_, err = io.Copy(conn, conn)
 			require.NoError(t, err)
+			close(retCh)
 		}()
 		time.Sleep(time.Second)
 
@@ -92,80 +98,63 @@ func Test_Connect(t *testing.T) {
 		require.NoError(t, err)
 		defer conn.Close()
 
-		req := []byte("hello world")
-		_, err = conn.Write(req)
-		require.NoError(t, err)
-
-		resp := make([]byte, len(req))
-		n, err := conn.Read(resp)
-		require.NoError(t, err)
-		require.Equal(t, req, resp[:n])
-
+		test.ValidPingPongConn(t, r, conn, 0xffff)
 		require.NoError(t, conn.Close())
 		cancel()
+
+		<-retCh
 	})
 
 	t.Run("nics", func(t *testing.T) {
+		// todo: maybe checksum offload?
+		monkey.Patch(debug.Debug, func() bool { return false })
+
 		tt := test.CreateTunTuple(t)
 		defer tt.Close()
 		var (
 			saddr = netip.AddrPortFrom(tt.Addr1, test.RandPort())
 			caddr = netip.AddrPortFrom(tt.Addr2, test.RandPort())
+			seed  = time.Now().UnixNano()
+			r     = rand.New(rand.NewSource(seed))
 		)
+		t.Log("seed: ", seed)
 
-		var retCh = make(chan struct{})
+		retCh := make(chan struct{})
 		go func() {
-			defer func() { retCh <- struct{}{} }()
-			conn, err := net.ListenIP("ip:tcp", &net.IPAddr{IP: caddr.Addr().AsSlice()})
+			// todo: add noise
+			l, err := net.ListenTCP("tcp", test.TCPAddr(saddr))
 			require.NoError(t, err)
-			defer conn.Close()
+			defer l.Close()
 
-			var noises = [][]byte{
-				test.BuildRawTCP(t, caddr, saddr, make([]byte, 16)),
+			conn, err := l.AcceptTCP()
+			require.NoError(t, err)
 
-				// noise
-				test.BuildRawTCP(t, saddr, caddr, make([]byte, 16)),
-				test.BuildRawTCP(t, netip.AddrPortFrom(caddr.Addr(), test.RandPort()), saddr, make([]byte, 16)),
-				test.BuildRawTCP(t, caddr, netip.AddrPortFrom(caddr.Addr(), test.RandPort()), make([]byte, 16)),
-				test.BuildRawTCP(t,
-					netip.AddrPortFrom(caddr.Addr(), test.RandPort()),
-					netip.AddrPortFrom(saddr.Addr(), test.RandPort()),
-					make([]byte, 16),
-				),
-			}
-
-			for {
-				select {
-				case <-retCh:
-					return
-				default:
-				}
-
-				for _, b := range noises {
-					_, err := conn.WriteToIP(header.IPv4(b).Payload(), &net.IPAddr{IP: saddr.Addr().AsSlice()})
-					require.NoError(t, err)
-					time.Sleep(time.Millisecond * 100)
-				}
-			}
+			_, err = io.Copy(conn, conn)
+			require.NoError(t, err)
+			close(retCh)
 		}()
+		time.Sleep(time.Second)
 
-		raw, err := Connect(saddr, caddr)
+		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
-		defer raw.Close()
+		us := test.NewUstack(t, caddr.Addr(), false)
 
-		for i := 0; i < 3; i++ {
-			var b = rsocket.ToPacket(0, make([]byte, 1536))
-			err := raw.Read(context.Background(), b)
-			require.NoError(t, err)
-			b.SetHead(0) // recover to ip packet
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		test.BindRawToUstack(t, ctx, us, raw)
 
-			iphdr := header.IPv4(b.Data())
-			tcpHdr := header.TCP(iphdr.Payload())
-			require.Equal(t, caddr.Port(), tcpHdr.SourcePort())
-			require.Equal(t, saddr.Port(), tcpHdr.DestinationPort())
-		}
+		conn, err := gonet.DialTCPWithBind(
+			ctx, us.Stack(),
+			test.FullAddress(caddr), test.FullAddress(saddr),
+			header.IPv4ProtocolNumber,
+		)
+		require.NoError(t, err)
+		defer conn.Close()
 
-		retCh <- struct{}{}
+		test.ValidPingPongConn(t, r, conn, 0xffff)
+		require.NoError(t, conn.Close())
+		cancel()
+
 		<-retCh
 	})
 }
@@ -176,8 +165,8 @@ func Test_Context(t *testing.T) {
 		saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
 	)
 
-	const delay = time.Millisecond * 100
-	conn, err := Connect(caddr, saddr, rsocket.CtxPeriod(delay))
+	const period = time.Millisecond * 100
+	conn, err := Connect(caddr, saddr, rsocket.CtxPeriod(period))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -190,7 +179,7 @@ func Test_Context(t *testing.T) {
 	s := time.Now()
 	err = conn.Read(ctx, p)
 	require.True(t, errors.Is(err, context.Canceled))
-	require.Less(t, time.Since(s), time.Second+2*delay)
+	require.Less(t, time.Since(s), time.Second+2*period)
 }
 
 func Test_Complete_Check(t *testing.T) {

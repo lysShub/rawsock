@@ -36,22 +36,24 @@ func ListenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 	}
 	var e error
 	err = raw.Control(func(fd uintptr) {
-		rawIns, e1 := bpf.Assemble([]bpf.Instruction{
+		if rawIns, e1 := bpf.Assemble([]bpf.Instruction{
 			bpf.RetConstant{Val: 0},
-		})
-		if e1 != nil {
+		}); e1 != nil {
 			e = e1
 			return
-		}
-		prog := &unix.SockFprog{
-			Len:    uint16(len(rawIns)),
-			Filter: (*unix.SockFilter)(unsafe.Pointer(&rawIns[0])),
-		}
+		} else {
+			prog := &unix.SockFprog{
+				Len:    uint16(len(rawIns)),
+				Filter: (*unix.SockFilter)(unsafe.Pointer(&rawIns[0])),
+			}
 
-		e = unix.SetsockoptSockFprog(
-			int(fd), unix.SOL_SOCKET,
-			unix.SO_ATTACH_FILTER, prog,
-		)
+			if e = unix.SetsockoptSockFprog(
+				int(fd), unix.SOL_SOCKET,
+				unix.SO_ATTACH_FILTER, prog,
+			); e != nil {
+				return
+			}
+		}
 	})
 	if e != nil {
 		l.Close()

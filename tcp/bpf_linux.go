@@ -12,6 +12,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/pkg/errors"
@@ -107,7 +108,7 @@ func (l *listener) Accept() (rsocket.RawConn, error) {
 
 	var b = make([]byte, max)
 	for {
-		n, err := l.raw.Read(b[:max]) // todo: use ReadFromIP
+		n, err := l.raw.Read(b[:max])
 		if err != nil {
 			return nil, err
 		} else if n < min {
@@ -200,13 +201,18 @@ type conn struct {
 	tcp          *net.TCPListener
 	complete     bool
 
-	raw *net.IPConn
+	raw iconn
 
 	ipstack *rsocket.IPStack
 
-	ctxCancelDelay time.Duration
+	ctxPeriod time.Duration
 
 	closeFn closeCallback
+}
+
+type iconn interface {
+	net.Conn
+	SyscallConn() (syscall.RawConn, error)
 }
 
 var _ rsocket.RawConn = (*conn)(nil)
@@ -231,23 +237,66 @@ func Connect(laddr, raddr netip.AddrPort, opts ...rsocket.Option) (*conn, error)
 
 func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallback, ctxPeriod time.Duration) *conn {
 	return &conn{
-		laddr:          laddr,
-		raddr:          raddr,
-		isn:            isn,
-		closeFn:        closeCall,
-		ctxCancelDelay: ctxPeriod,
+		laddr:     laddr,
+		raddr:     raddr,
+		isn:       isn,
+		closeFn:   closeCall,
+		ctxPeriod: ctxPeriod,
 	}
 }
 
 func (c *conn) init(complete bool, ipCfg *ipstack.Options) (err error) {
-	c.raw, err = net.DialIP(
-		"ip:tcp",
-		&net.IPAddr{IP: c.laddr.Addr().AsSlice(), Zone: c.laddr.Addr().Zone()},
-		&net.IPAddr{IP: c.raddr.Addr().AsSlice(), Zone: c.raddr.Addr().Zone()},
-	)
-	if err != nil {
-		c.Close()
-		return err
+	{
+		cr, err := net.DialIP(
+			"ip:tcp",
+			&net.IPAddr{IP: c.laddr.Addr().AsSlice(), Zone: c.laddr.Addr().Zone()},
+			&net.IPAddr{IP: c.raddr.Addr().AsSlice(), Zone: c.raddr.Addr().Zone()},
+		)
+		if err != nil {
+			c.Close()
+			return err
+		}
+		if err = cr.SetReadBuffer(1500); err != nil {
+			panic(err)
+		}
+		c.raw = cr
+	}
+
+	{
+		// pconn, err := net.ListenPacket("ip:tcp", c.laddr.Addr().String())
+		// if err != nil {
+		// 	panic(err)
+		// }
+
+		/* {
+			i, ok := pconn.(*net.IPConn)
+			if !ok {
+				panic(ok)
+			}
+			sr, err := i.SyscallConn()
+			if err != nil {
+				panic(err)
+			}
+
+			raw := ipv4.NewPacketConn(pconn)
+			c.raw = &PacketConnWrap{
+				PacketConn: raw,
+				raw:        sr,
+				remote:     &net.IPAddr{IP: c.raddr.Addr().AsSlice()},
+			}
+		} */
+
+		/*{
+			cr, err := ipv4.NewRawConn(pconn)
+			if err != nil {
+				panic(err)
+			}
+			cr.SetReadBuffer()
+			c.raw = &RawConnWrap{
+				RawConn: cr,
+				remote:  &net.IPAddr{IP: c.raddr.Addr().AsSlice()},
+			}
+		} */
 	}
 
 	raw, err := c.raw.SyscallConn()
@@ -284,7 +333,7 @@ func (c *conn) Read(ctx context.Context, p *rsocket.Packet) (err error) {
 
 	var n int
 	for {
-		err = c.raw.SetReadDeadline(time.Now().Add(c.ctxCancelDelay))
+		err = c.raw.SetReadDeadline(time.Now().Add(c.ctxPeriod))
 		if err != nil {
 			return err
 		}
