@@ -1,10 +1,13 @@
 package bpf
 
 import (
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/bpf"
+	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 func Test_FilterDstPortAndSynFlag(t *testing.T) {
@@ -56,4 +59,167 @@ func Test_FilterDstPortAndSynFlag(t *testing.T) {
 	n, err := vm.Run(b)
 	require.NoError(t, err)
 	require.Equal(t, 0xffff, n)
+}
+
+func Test_iphdrLen(t *testing.T) {
+	var ips = [][]byte{
+		func() header.IPv4 {
+			var b = make(header.IPv4, 64)
+			b.Encode(&header.IPv4Fields{
+				Protocol: uint8(header.TCPProtocolNumber),
+				SrcAddr:  tcpip.AddrFrom4([4]byte{3: 1}),
+				DstAddr:  tcpip.AddrFrom4([4]byte{1: 1}),
+			})
+			return b[:b.HeaderLength()]
+		}(),
+		func() header.IPv4 {
+			var b = make(header.IPv4, 64)
+			b.Encode(&header.IPv4Fields{
+				Protocol: uint8(header.TCPProtocolNumber),
+				SrcAddr:  tcpip.AddrFrom4([4]byte{0: 4}),
+				DstAddr:  tcpip.AddrFrom4([4]byte{2: 1}),
+				Options: header.IPv4OptionsSerializer{
+					&header.IPv4SerializableRouterAlertOption{},
+				},
+			})
+			return b[:b.HeaderLength()]
+		}(),
+		func() header.IPv6 {
+			var b = make(header.IPv6, 64)
+			b.Encode(&header.IPv6Fields{
+				SrcAddr: tcpip.AddrFrom16([16]byte{11: 4}),
+				DstAddr: tcpip.AddrFrom16([16]byte{2: 1}),
+			})
+			return b[:b.NextHeader()]
+		}(),
+	}
+
+	var ins = iphdrLen()
+	ins = append(ins,
+		bpf.TXA{},
+		bpf.RetA{},
+	)
+
+	for _, ip := range ips {
+		v, err := bpf.NewVM(ins)
+		require.NoError(t, err)
+		n, err := v.Run(ip)
+		require.NoError(t, err)
+		require.Equal(t, len(ip), n)
+	}
+
+}
+
+func Test_filterAddrs(t *testing.T) {
+	var suits = []header.Network{
+		func() header.IPv4 {
+			var b = make(header.IPv4, 40)
+			b.Encode(&header.IPv4Fields{
+				Protocol: uint8(header.TCPProtocolNumber),
+				SrcAddr:  tcpip.AddrFromSlice([]byte{1, 2, 3, 4}),
+				DstAddr:  tcpip.AddrFromSlice([]byte{64, 255, 232, 1}),
+			})
+			return b
+		}(),
+
+		func() header.IPv6 {
+			var b = make(header.IPv6, 40)
+			b.Encode(&header.IPv6Fields{
+				TrafficClass: uint8(header.TCPProtocolNumber),
+				SrcAddr:      tcpip.AddrFrom16([16]byte{11: 1}),
+				DstAddr:      tcpip.AddrFrom16([16]byte{7: 1}),
+			})
+			return b
+		}(),
+	}
+
+	for _, e := range suits {
+		var ins = filterAddrs(
+			netip.MustParseAddr(e.SourceAddress().String()),
+			netip.MustParseAddr(e.DestinationAddress().String()),
+		)
+		ins = append(ins,
+			bpf.RetConstant{Val: 0xffff},
+		)
+
+		v, err := bpf.NewVM(ins)
+		require.NoError(t, err)
+		n, err := v.Run(func() []byte {
+			if e, ok := e.(header.IPv4); ok {
+				return e
+			}
+			return e.(header.IPv6)
+		}())
+		require.NoError(t, err)
+		require.Equal(t, 0xffff, n)
+	}
+
+}
+
+func Test_FilterAddress(t *testing.T) {
+	var suits = []struct {
+		name     string
+		src, dst netip.AddrPort
+		proto    tcpip.TransportProtocolNumber
+		ret      int
+		ip       []byte
+	}{
+		{
+			name:  "hit-ipv4-tcp",
+			src:   netip.AddrPortFrom(netip.MustParseAddr("1.2.3.4"), 19986),
+			dst:   netip.AddrPortFrom(netip.MustParseAddr("64.255.232.1"), 8080),
+			proto: header.TCPProtocolNumber,
+			ret:   0xffff,
+			ip: func() []byte {
+				var b = make(header.IPv4, 40)
+				b.Encode(&header.IPv4Fields{
+					Protocol: uint8(header.TCPProtocolNumber),
+					SrcAddr:  tcpip.AddrFromSlice([]byte{1, 2, 3, 4}),
+					DstAddr:  tcpip.AddrFromSlice([]byte{64, 255, 232, 1}),
+				})
+				header.TCP(b[20:]).Encode(
+					&header.TCPFields{
+						SrcPort: 19986,
+						DstPort: 8080,
+					},
+				)
+				return b
+			}(),
+		},
+		{
+			name:  "hit-ipv4_opt-tcp",
+			src:   netip.AddrPortFrom(netip.MustParseAddr("1.2.3.4"), 19986),
+			dst:   netip.AddrPortFrom(netip.MustParseAddr("64.255.232.1"), 8080),
+			proto: header.TCPProtocolNumber,
+			ret:   0xffff,
+			ip: func() []byte {
+				var b = make(header.IPv4, 64)
+				b.Encode(&header.IPv4Fields{
+					Protocol: uint8(header.TCPProtocolNumber),
+					SrcAddr:  tcpip.AddrFromSlice([]byte{1, 2, 3, 4}),
+					DstAddr:  tcpip.AddrFromSlice([]byte{64, 255, 232, 1}),
+					Options:  header.IPv4OptionsSerializer{&header.IPv4SerializableRouterAlertOption{}},
+				})
+
+				header.TCP(b[b.HeaderLength():]).Encode(
+					&header.TCPFields{
+						SrcPort: 19986,
+						DstPort: 8080,
+					},
+				)
+				return b
+			}(),
+		},
+	}
+
+	for _, e := range suits {
+		ins := FilterEndpoint(e.proto, e.src, e.dst)
+		vm, err := bpf.NewVM(ins)
+		require.NoError(t, err)
+
+		n, err := vm.Run(e.ip)
+		require.NoError(t, err)
+		require.Equal(t, e.ret, n)
+	}
+
 }

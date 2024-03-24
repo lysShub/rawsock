@@ -11,7 +11,17 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func SetBPF(raw syscall.RawConn, ins []bpf.Instruction) error {
+func SetRawBPF(raw syscall.RawConn, ins []bpf.Instruction) error {
+	var e error
+	if err := raw.Control(func(fd uintptr) {
+		e = SetBPF(fd, ins)
+	}); err != nil {
+		return err
+	}
+	return e
+}
+
+func SetBPF(fd uintptr, ins []bpf.Instruction) error {
 	var prog *unix.SockFprog
 	if rawIns, err := bpf.Assemble(ins); err != nil {
 		return err
@@ -22,14 +32,8 @@ func SetBPF(raw syscall.RawConn, ins []bpf.Instruction) error {
 		}
 	}
 
-	var e error
-	if err := raw.Control(func(fd uintptr) {
-		e = unix.SetsockoptSockFprog(
-			int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog,
-		)
-	}); err != nil {
-		return err
-	}
-
-	return e
+	err := unix.SetsockoptSockFprog(
+		int(fd), unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, prog,
+	)
+	return err
 }

@@ -12,6 +12,8 @@ import (
 )
 
 func Test_Create_Tuns(t *testing.T) {
+	// data transmit on loopback, tcpdump -i lo -w a.pcap
+
 	tt := test.CreateTunTuple(t)
 	defer tt.Close()
 

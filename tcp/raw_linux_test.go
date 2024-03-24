@@ -21,13 +21,13 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-func Test_Listen(t *testing.T) {
+func Test_Raw_Listen(t *testing.T) {
 	t.Run("accept-once", func(t *testing.T) {
 		addr := netip.AddrPortFrom(test.LocIP(), test.RandPort())
 
 		var cnt atomic.Uint32
 		go func() {
-			l, err := Listen(addr)
+			l, err := ListenRaw(addr)
 			require.NoError(t, err)
 			defer l.Close()
 
@@ -82,7 +82,7 @@ func Test_Connect(t *testing.T) {
 		}()
 		time.Sleep(time.Second)
 
-		raw, err := Connect(caddr, saddr)
+		raw, err := ConnectRaw(caddr, saddr)
 		require.NoError(t, err)
 		us := test.NewUstack(t, caddr.Addr(), false)
 
@@ -135,7 +135,7 @@ func Test_Connect(t *testing.T) {
 		}()
 		time.Sleep(time.Second)
 
-		raw, err := Connect(caddr, saddr)
+		raw, err := ConnectRaw(caddr, saddr)
 		require.NoError(t, err)
 		us := test.NewUstack(t, caddr.Addr(), false)
 
@@ -166,7 +166,7 @@ func Test_Context(t *testing.T) {
 	)
 
 	const period = time.Millisecond * 100
-	conn, err := Connect(caddr, saddr, rsocket.CtxPeriod(period))
+	conn, err := ConnectRaw(caddr, saddr, rsocket.CtxPeriod(period))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -195,7 +195,7 @@ func Test_Complete_Check(t *testing.T) {
 		go func() {
 			time.Sleep(time.Second)
 
-			raw, err := Connect(saddr, caddr)
+			raw, err := ConnectRaw(saddr, caddr)
 			require.NoError(t, err)
 			defer raw.Close()
 
@@ -205,7 +205,7 @@ func Test_Complete_Check(t *testing.T) {
 			require.NoError(t, err)
 		}()
 
-		raw, err := Connect(caddr, saddr)
+		raw, err := ConnectRaw(caddr, saddr)
 		require.NoError(t, err)
 		defer raw.Close()
 
@@ -223,7 +223,7 @@ func Test_Complete_Check(t *testing.T) {
 		go func() {
 			time.Sleep(time.Second)
 
-			raw, err := Connect(saddr, caddr)
+			raw, err := ConnectRaw(saddr, caddr)
 			require.NoError(t, err)
 			defer raw.Close()
 
@@ -233,7 +233,7 @@ func Test_Complete_Check(t *testing.T) {
 			require.NoError(t, err)
 		}()
 
-		raw, err := Connect(caddr, saddr)
+		raw, err := ConnectRaw(caddr, saddr)
 		require.NoError(t, err)
 		defer raw.Close()
 

@@ -26,7 +26,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-type listener struct {
+type listenerRaw struct {
 	addr netip.AddrPort
 	cfg  *config.Config
 
@@ -41,10 +41,10 @@ type listener struct {
 	closedConnsMu sync.RWMutex
 }
 
-var _ rsocket.Listener = (*listener)(nil)
+var _ rsocket.Listener = (*listenerRaw)(nil)
 
-func Listen(laddr netip.AddrPort, opts ...rsocket.Option) (*listener, error) {
-	var l = &listener{
+func ListenRaw(laddr netip.AddrPort, opts ...rsocket.Option) (*listenerRaw, error) {
+	var l = &listenerRaw{
 		cfg:   rsocket.Options(opts...),
 		conns: make(map[netip.AddrPort]uint32, 16),
 	}
@@ -71,7 +71,7 @@ func Listen(laddr netip.AddrPort, opts ...rsocket.Option) (*listener, error) {
 		return nil, err
 	}
 
-	if err = bpf.SetBPF(
+	if err = bpf.SetRawBPF(
 		raw,
 		bpf.FilterDstPortAndSynFlag(l.addr.Port()),
 	); err != nil {
@@ -82,7 +82,7 @@ func Listen(laddr netip.AddrPort, opts ...rsocket.Option) (*listener, error) {
 	return l, nil
 }
 
-func (l *listener) Close() error {
+func (l *listenerRaw) Close() error {
 	var err error
 	if l.tcp != nil {
 		if e := l.Close(); e != nil {
@@ -97,12 +97,12 @@ func (l *listener) Close() error {
 	return err
 }
 
-func (l *listener) Addr() netip.AddrPort {
+func (l *listenerRaw) Addr() netip.AddrPort {
 	return l.addr
 }
 
 // todo: not support private proto that not start with tcp SYN flag
-func (l *listener) Accept() (rsocket.RawConn, error) {
+func (l *listenerRaw) Accept() (rsocket.RawConn, error) {
 	var min, max = tcpSynSizeRange(l.addr.Addr().Is4())
 
 	var b = make([]byte, max)
@@ -140,7 +140,7 @@ func (l *listener) Accept() (rsocket.RawConn, error) {
 		}
 
 		if newConn {
-			c := newConnect(
+			c := newConnectRaw(
 				l.addr, raddr, isn,
 				l.deleteConn, l.cfg.CtxPeriod,
 			)
@@ -149,7 +149,7 @@ func (l *listener) Accept() (rsocket.RawConn, error) {
 	}
 }
 
-func (l *listener) purgeDeleted() {
+func (l *listenerRaw) purgeDeleted() {
 	l.closedConnsMu.Lock()
 	defer l.closedConnsMu.Unlock()
 
@@ -169,7 +169,7 @@ func (l *listener) purgeDeleted() {
 	}
 }
 
-func (l *listener) deleteConn(raddr netip.AddrPort, isn uint32) error {
+func (l *listenerRaw) deleteConn(raddr netip.AddrPort, isn uint32) error {
 	if l == nil {
 		return nil
 	}
@@ -194,7 +194,8 @@ func (l *listener) deleteConn(raddr netip.AddrPort, isn uint32) error {
 	return nil
 }
 
-type conn struct {
+// NOTICE: probably recv reassembled tcp segment, that greater than MTU
+type connRaw struct {
 	laddr, raddr netip.AddrPort
 	isn          uint32
 	tcp          *net.TCPListener
@@ -209,12 +210,12 @@ type conn struct {
 	closeFn closeCallback
 }
 
-var _ rsocket.RawConn = (*conn)(nil)
+var _ rsocket.RawConn = (*connRaw)(nil)
 
-func Connect(laddr, raddr netip.AddrPort, opts ...rsocket.Option) (*conn, error) {
+func ConnectRaw(laddr, raddr netip.AddrPort, opts ...rsocket.Option) (*connRaw, error) {
 	cfg := rsocket.Options(opts...)
 
-	var c = newConnect(
+	var c = newConnectRaw(
 		laddr, raddr, 0,
 		nil, cfg.CtxPeriod,
 	)
@@ -229,8 +230,8 @@ func Connect(laddr, raddr netip.AddrPort, opts ...rsocket.Option) (*conn, error)
 	return c, c.init(cfg.CompleteCheck, cfg.IPStackCfg)
 }
 
-func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallback, ctxPeriod time.Duration) *conn {
-	return &conn{
+func newConnectRaw(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallback, ctxPeriod time.Duration) *connRaw {
+	return &connRaw{
 		laddr:     laddr,
 		raddr:     raddr,
 		isn:       isn,
@@ -239,7 +240,7 @@ func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallback
 	}
 }
 
-func (c *conn) init(complete bool, ipCfg *ipstack.Options) (err error) {
+func (c *connRaw) init(complete bool, ipCfg *ipstack.Options) (err error) {
 	c.raw, err = net.DialIP(
 		"ip:tcp",
 		&net.IPAddr{IP: c.laddr.Addr().AsSlice(), Zone: c.laddr.Addr().Zone()},
@@ -257,9 +258,9 @@ func (c *conn) init(complete bool, ipCfg *ipstack.Options) (err error) {
 	}
 
 	// filter src/dst ports
-	if err = bpf.SetBPF(
+	if err = bpf.SetRawBPF(
 		raw,
-		bpf.FilterSrcPortAndDstPort(c.raddr.Port(), c.laddr.Port()),
+		bpf.FilterPorts(c.raddr.Port(), c.laddr.Port()),
 	); err != nil {
 		c.Close()
 		return err
@@ -278,7 +279,7 @@ func (c *conn) init(complete bool, ipCfg *ipstack.Options) (err error) {
 	return nil
 }
 
-func (c *conn) Read(ctx context.Context, p *rsocket.Packet) (err error) {
+func (c *connRaw) Read(ctx context.Context, p *rsocket.Packet) (err error) {
 	b := p.Data()
 	b = b[:cap(b)]
 
@@ -322,12 +323,12 @@ func (c *conn) Read(ctx context.Context, p *rsocket.Packet) (err error) {
 	return nil
 }
 
-func (c *conn) Write(ctx context.Context, p *rsocket.Packet) (err error) {
+func (c *connRaw) Write(ctx context.Context, p *rsocket.Packet) (err error) {
 	_, err = c.raw.Write(p.Data())
 	return err
 }
 
-func (c *conn) Inject(ctx context.Context, p *rsocket.Packet) (err error) {
+func (c *connRaw) Inject(ctx context.Context, p *rsocket.Packet) (err error) {
 	c.ipstack.AttachInbound(p)
 	if debug.Debug() {
 		test.ValidIP(test.T(), p.Data())
@@ -336,7 +337,7 @@ func (c *conn) Inject(ctx context.Context, p *rsocket.Packet) (err error) {
 	return err
 }
 
-func (c *conn) Close() error {
+func (c *connRaw) Close() error {
 	var err error
 	if c.closeFn != nil {
 		if e := c.closeFn(c.raddr, c.isn); e != nil {
@@ -356,9 +357,9 @@ func (c *conn) Close() error {
 	return err
 }
 
-func (c *conn) LocalAddr() netip.AddrPort {
+func (c *connRaw) LocalAddr() netip.AddrPort {
 	return c.laddr
 }
-func (c *conn) RemoteAddr() netip.AddrPort {
+func (c *connRaw) RemoteAddr() netip.AddrPort {
 	return c.raddr
 }
