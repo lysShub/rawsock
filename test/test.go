@@ -217,11 +217,6 @@ func RandIP() netip.Addr {
 	return netip.AddrFrom4([4]byte(b))
 }
 
-func LocIP() netip.Addr {
-	c, _ := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 53})
-	return netip.MustParseAddrPort(c.LocalAddr().String()).Addr()
-}
-
 func TCPAddr(a netip.AddrPort) *net.TCPAddr {
 	return &net.TCPAddr{IP: a.Addr().AsSlice(), Port: int(a.Port())}
 }

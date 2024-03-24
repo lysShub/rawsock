@@ -1,5 +1,11 @@
 package rsocket
 
+import (
+	"fmt"
+
+	"github.com/lysShub/rsocket/test/debug"
+)
+
 type Packet struct {
 	//             |    data     |
 	//  b  --------+++++++++++++++--------
@@ -71,6 +77,10 @@ func (p *Packet) Attach(b []byte) {
 	if delta >= 0 {
 		p.i -= copy(p.b[delta:], b)
 	} else {
+		if debug.Debug() {
+			fmt.Println("packet memory alloc")
+		}
+
 		n := len(p.b) + defaulfHead - delta
 		tmp := make([]byte, n, n+max(p.Tail(), defaulfTail))
 
@@ -113,6 +123,10 @@ func (p *Packet) Sets(head, n int) {
 func (p *Packet) AllocHead(head int) bool {
 	delta := head - p.Head()
 	if delta > 0 {
+		if debug.Debug() {
+			fmt.Println("packet memory alloc")
+		}
+
 		if head < defaulfHead {
 			head = defaulfHead
 			delta = head - p.Head()
@@ -130,6 +144,10 @@ func (p *Packet) AllocHead(head int) bool {
 func (p *Packet) AllocTail(tail int) bool {
 	delta := tail - p.Tail()
 	if delta > 0 {
+		if debug.Debug() {
+			fmt.Println("packet memory alloc")
+		}
+
 		if tail < defaulfTail {
 			tail = defaulfTail
 		}
@@ -145,7 +163,6 @@ func (p *Packet) AllocTail(tail int) bool {
 
 func (p *Packet) Copy() *Packet {
 	n := cap(p.b)
-
 	var c = &Packet{
 		b: make([]byte, len(p.b), n),
 		i: p.i,
