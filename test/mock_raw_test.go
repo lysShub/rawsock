@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lysShub/rsocket"
+	"github.com/lysShub/rsocket/packet"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -55,10 +55,10 @@ func Test_Mock_RawConn(t *testing.T) {
 			netip.AddrPortFrom(LocIP(), RandPort()),
 		)
 
-		err := rawClient.Write(context.Background(), rsocket.ToPacket(0, tcp))
+		err := rawClient.Write(context.Background(), packet.ToPacket(0, tcp))
 		require.NoError(t, err)
 
-		var b = rsocket.ToPacket(0, make([]byte, 128))
+		var b = packet.ToPacket(0, make([]byte, 128))
 		err = rawServer.Read(context.Background(), b)
 		require.NoError(t, err)
 		require.Equal(t, []byte(tcp), b.Data())
@@ -73,12 +73,12 @@ func Test_Mock_RawConn(t *testing.T) {
 		defer rawServer.Close()
 
 		var tcphdr = []byte{21: 1}
-		err := rawClient.Write(context.Background(), rsocket.ToPacket(0, tcphdr))
+		err := rawClient.Write(context.Background(), packet.ToPacket(0, tcphdr))
 		require.NoError(t, err)
 
 		tcphdr[21] = 2
 
-		var b = rsocket.ToPacket(0, make([]byte, len(tcphdr)+20))
+		var b = packet.ToPacket(0, make([]byte, len(tcphdr)+20))
 		err = rawServer.Read(context.Background(), b)
 		require.NoError(t, err)
 		require.Equal(t, uint8(1), b.Data()[21])
@@ -92,7 +92,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		defer rawClient.Close()
 		defer rawServer.Close()
 
-		p1 := rsocket.NewPacket(20, 22)
+		p1 := packet.NewPacket(20, 22)
 		tcphdr := header.TCP(p1.Data())
 		tcphdr.Encode(&header.TCPFields{DataOffset: 20})
 		tcphdr.Payload()[0] = 1
@@ -102,7 +102,7 @@ func Test_Mock_RawConn(t *testing.T) {
 
 		p1.Data()[20] = 2
 
-		p2 := rsocket.NewPacket(0, 64)
+		p2 := packet.NewPacket(0, 64)
 		err = rawServer.Read(context.Background(), p2)
 		require.NoError(t, err)
 		require.Equal(t, byte(1), header.TCP(p2.Data()).Payload()[0])

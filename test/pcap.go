@@ -8,18 +8,19 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
-	"github.com/lysShub/rsocket"
+	"github.com/lysShub/rsocket/conn"
+	"github.com/lysShub/rsocket/packet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 type pcapWrap struct {
-	rsocket.RawConn
+	conn.RawConn
 
 	fh *os.File
 	w  *pcapgo.Writer
 }
 
-func WrapPcap(child rsocket.RawConn, file string) (*pcapWrap, error) {
+func WrapPcap(child conn.RawConn, file string) (*pcapWrap, error) {
 	fh, err := os.Create(file)
 	if err != nil {
 		return nil, err
@@ -38,9 +39,9 @@ func WrapPcap(child rsocket.RawConn, file string) (*pcapWrap, error) {
 	}, nil
 }
 
-var _ rsocket.RawConn = (*pcapWrap)(nil)
+var _ conn.RawConn = (*pcapWrap)(nil)
 
-func (w *pcapWrap) Read(ctx context.Context, p *rsocket.Packet) (err error) {
+func (w *pcapWrap) Read(ctx context.Context, p *packet.Packet) (err error) {
 	oldH := p.Head()
 
 	err = w.RawConn.Read(ctx, p)
@@ -55,7 +56,7 @@ func (w *pcapWrap) Read(ctx context.Context, p *rsocket.Packet) (err error) {
 
 	return nil
 }
-func (w *pcapWrap) Write(ctx context.Context, p *rsocket.Packet) (err error) {
+func (w *pcapWrap) Write(ctx context.Context, p *packet.Packet) (err error) {
 	err = w.RawConn.Write(ctx, p)
 	if err != nil {
 		return err
@@ -64,7 +65,7 @@ func (w *pcapWrap) Write(ctx context.Context, p *rsocket.Packet) (err error) {
 	w.writePacket(p.Data())
 	return nil
 }
-func (w *pcapWrap) Inject(ctx context.Context, p *rsocket.Packet) (err error) {
+func (w *pcapWrap) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	err = w.RawConn.Inject(ctx, p)
 	if err != nil {
 		return err

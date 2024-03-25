@@ -6,6 +6,7 @@ require (
 	bou.ke/monkey v1.0.2
 	github.com/google/gopacket v1.1.19
 	github.com/lysShub/divert-go v0.0.0-20240313084012-1361fa303219
+	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/net v0.20.0
 	golang.org/x/sys v0.16.0
@@ -15,7 +16,6 @@ require (
 require (
 	github.com/josharian/native v1.0.0 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
-	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875 // indirect
 	github.com/mdlayher/ethernet v0.0.0-20220221185849-529eae5b6118 // indirect
 	github.com/mdlayher/packet v1.0.0 // indirect
 	github.com/mdlayher/socket v0.2.1 // indirect
