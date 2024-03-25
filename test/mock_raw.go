@@ -11,8 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lysShub/rsocket"
-	"github.com/lysShub/rsocket/internal/config"
+	"github.com/lysShub/rsocket/conn"
+	"github.com/lysShub/rsocket/helper/ipstack"
+	"github.com/lysShub/rsocket/packet"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -24,7 +25,7 @@ type MockRaw struct {
 	t             require.TestingT
 	proto         tcpip.TransportProtocolNumber
 	local, remote netip.AddrPort
-	ip            *rsocket.IPStack
+	ip            *ipstack.IPStack
 
 	in       chan header.IPv4
 	out      chan<- header.IPv4
@@ -33,7 +34,7 @@ type MockRaw struct {
 }
 
 type options struct {
-	config.Config
+	*conn.Config
 
 	validAddr     bool
 	validChecksum bool
@@ -42,7 +43,7 @@ type options struct {
 }
 
 var defaultOptions = options{
-	Config: *config.Default(),
+	Config: conn.Options(),
 
 	validAddr:     false,
 	validChecksum: false,
@@ -52,11 +53,9 @@ var defaultOptions = options{
 
 type Option func(*options)
 
-func RawOpts(opts ...rsocket.Option) Option {
+func RawOpts(opts ...conn.Option) Option {
 	return func(o *options) {
-		for _, opt := range opts {
-			opt(&o.Config)
-		}
+		o.Config = conn.Options(opts...)
 	}
 }
 
@@ -106,10 +105,10 @@ func NewMockRaw(
 	for _, opt := range opts {
 		opt(&client.options)
 	}
-	client.ip, err = rsocket.NewIPStack(
+	client.ip, err = ipstack.New(
 		client.local.Addr(), client.remote.Addr(),
 		proto,
-		client.options.Config.IPStackCfg.Unmarshal(),
+		client.options.Config.IPStack.Unmarshal(),
 	)
 	require.NoError(t, err)
 
@@ -126,10 +125,10 @@ func NewMockRaw(
 	for _, opt := range opts {
 		opt(&client.options)
 	}
-	server.ip, err = rsocket.NewIPStack(
+	server.ip, err = ipstack.New(
 		server.local.Addr(), server.remote.Addr(),
 		proto,
-		server.options.Config.IPStackCfg.Unmarshal(),
+		server.options.Config.IPStack.Unmarshal(),
 	)
 	require.NoError(t, err)
 
@@ -140,7 +139,7 @@ func NewMockRaw(
 	return client, server
 }
 
-var _ rsocket.RawConn = (*MockRaw)(nil)
+var _ conn.RawConn = (*MockRaw)(nil)
 
 func (r *MockRaw) Close() error {
 	r.closedMu.Lock()
@@ -150,7 +149,7 @@ func (r *MockRaw) Close() error {
 	return nil
 }
 
-func (r *MockRaw) Read(ctx context.Context, p *rsocket.Packet) (err error) {
+func (r *MockRaw) Read(ctx context.Context, p *packet.Packet) (err error) {
 	var ip header.IPv4
 	ok := false
 	select {
@@ -183,7 +182,7 @@ func (r *MockRaw) Read(ctx context.Context, p *rsocket.Packet) (err error) {
 
 	return nil
 }
-func (r *MockRaw) Write(ctx context.Context, p *rsocket.Packet) (err error) {
+func (r *MockRaw) Write(ctx context.Context, p *packet.Packet) (err error) {
 	r.closedMu.RLock()
 	defer r.closedMu.RUnlock()
 	if r.closed {
@@ -206,7 +205,7 @@ func (r *MockRaw) Write(ctx context.Context, p *rsocket.Packet) (err error) {
 	}
 	return nil
 }
-func (r *MockRaw) Inject(ctx context.Context, p *rsocket.Packet) (err error) {
+func (r *MockRaw) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	// r.valid(p.Data(), true)
 
 	var tmp = make([]byte, p.Len())
@@ -286,14 +285,14 @@ func (r *MockRaw) loss() bool {
 
 type MockListener struct {
 	addr netip.AddrPort
-	raws chan rsocket.RawConn
+	raws chan conn.RawConn
 
 	closed atomic.Bool
 }
 
-var _ rsocket.Listener = (*MockListener)(nil)
+var _ conn.Listener = (*MockListener)(nil)
 
-func NewMockListener(t require.TestingT, raws ...rsocket.RawConn) *MockListener {
+func NewMockListener(t require.TestingT, raws ...conn.RawConn) *MockListener {
 	var addr = raws[0].LocalAddr()
 	for _, e := range raws {
 		require.Equal(t, addr, e.LocalAddr())
@@ -301,7 +300,7 @@ func NewMockListener(t require.TestingT, raws ...rsocket.RawConn) *MockListener 
 
 	var l = &MockListener{
 		addr: addr,
-		raws: make(chan rsocket.RawConn, len(raws)),
+		raws: make(chan conn.RawConn, len(raws)),
 	}
 	for _, e := range raws {
 		l.raws <- e
@@ -309,7 +308,7 @@ func NewMockListener(t require.TestingT, raws ...rsocket.RawConn) *MockListener 
 	return l
 }
 
-func (l *MockListener) Accept() (rsocket.RawConn, error) {
+func (l *MockListener) Accept() (conn.RawConn, error) {
 	raw, ok := <-l.raws
 	if !ok || l.closed.Load() {
 		return nil, os.ErrClosed
