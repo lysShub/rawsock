@@ -4,36 +4,35 @@ import (
 	"fmt"
 	"net/netip"
 
-	"github.com/lysShub/rsocket/device/tun"
+	"github.com/lysShub/rsocket/device/tap"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/unix"
 )
 
-type TunTuple struct {
-	ap1, ap2     *tun.Tun
+type NicTuple struct {
+	Ap1, Ap2     *tap.Tap
 	Name1, Name2 string
 	Addr1, Addr2 netip.Addr
 }
 
-func (t *TunTuple) Close() error {
+func (t *NicTuple) Close() error {
 	var err error
-	if e := t.ap1.Close(); e != nil {
+	if e := t.Ap1.Close(); e != nil {
 		err = e
 	}
-	if e := t.ap2.Close(); e != nil {
+	if e := t.Ap2.Close(); e != nil {
 		err = e
 	}
 	return err
 }
 
-func CreateTunTuple(t require.TestingT) *TunTuple {
+func CreateTunTuple(t require.TestingT) *NicTuple {
 	var addrs = []netip.Addr{
 		netip.AddrFrom4([4]byte{10, 0, 1, 123}),
 		netip.AddrFrom4([4]byte{10, 0, 2, 123}),
 	}
 
-	var tt = &TunTuple{
+	var tt = &NicTuple{
 		Addr1: addrs[0],
 		Addr2: addrs[1],
 	}
@@ -41,26 +40,17 @@ func CreateTunTuple(t require.TestingT) *TunTuple {
 	for i, addr := range addrs {
 		name := fmt.Sprintf("test%d", i+1)
 
-		ap, err := tun.CreateTun(name)
+		ap, err := tap.Create(name)
 		require.NoError(t, err)
-
-		require.NoError(t, ap.DelFlags(unix.IFF_NOARP))
 
 		err = ap.SetAddr(netip.PrefixFrom(addr, 24))
 		require.NoError(t, err)
 
-		// var hw = make(net.HardwareAddr, 6)
-		// _, err = rand.New(rand.NewSource(0)).Read(hw)
-		// require.NoError(t, err)
-		// hw[0] = 0
-		// err = ap.SetHardware(hw)
-		// require.NoError(t, err)
-
 		if i == 0 {
-			tt.ap1 = ap
+			tt.Ap1 = ap
 			tt.Name1 = name
 		} else {
-			tt.ap2 = ap
+			tt.Ap2 = ap
 			tt.Name2 = name
 		}
 	}

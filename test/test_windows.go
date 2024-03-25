@@ -12,20 +12,19 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-// 两个互通的tun设备
-type TunTuple struct {
+type NicTuple struct {
 	ap1, ap2     *wintun.Adapter
 	Addr1, Addr2 netip.Addr
 	statue       atomic.Uint32
 }
 
-func (t *TunTuple) start() error {
+func (t *NicTuple) start() error {
 	go t.srv(t.ap1, t.ap2, t.Addr2)
 	go t.srv(t.ap2, t.ap1, t.Addr1)
 	return nil
 }
 
-func (t *TunTuple) srv(self, peer *wintun.Adapter, peerAddr netip.Addr) {
+func (t *NicTuple) srv(self, peer *wintun.Adapter, peerAddr netip.Addr) {
 	for t.statue.Load() == 0 {
 		p, err := self.Receive(context.Background())
 		if err != nil {
@@ -70,7 +69,7 @@ func (t *TunTuple) srv(self, peer *wintun.Adapter, peerAddr netip.Addr) {
 	t.statue.Add(1)
 }
 
-func (t *TunTuple) Close() error {
+func (t *NicTuple) Close() error {
 	t.statue.Store(1)
 	for t.statue.Load() != 3 {
 		time.Sleep(time.Millisecond * 100)
@@ -78,14 +77,14 @@ func (t *TunTuple) Close() error {
 	return nil
 }
 
-func CreateTunTuple() (*TunTuple, error) {
+func CreateTunTuple() (*NicTuple, error) {
 	wintun.MustLoad(wintun.DLL)
 
 	var addrs = []netip.Addr{
 		netip.AddrFrom4([4]byte{10, 0, 1, 123}),
 		netip.AddrFrom4([4]byte{10, 0, 2, 123}),
 	}
-	var tt = &TunTuple{
+	var tt = &NicTuple{
 		Addr1: addrs[0],
 		Addr2: addrs[1],
 	}

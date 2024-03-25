@@ -4,7 +4,6 @@
 package eth
 
 import (
-	"encoding/binary"
 	"net"
 	"os"
 	"syscall"
@@ -17,7 +16,6 @@ import (
 )
 
 // https://man7.org/linux/man-pages/man7/packet.7.html
-// NOTICE: can't work on tun device
 type ETHConn struct {
 	fd  *os.File
 	raw syscall.RawConn
@@ -96,13 +94,13 @@ func newETHConn(network string, ifi *net.Interface) (*ETHConn, error) {
 		}
 	}
 
-	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_DGRAM, int(htons(proto)))
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_DGRAM, int(helper.Htons(proto)))
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
 	if err = unix.Bind(fd, &unix.SockaddrLinklayer{
-		Protocol: htons(proto),
+		Protocol: helper.Htons(proto),
 		Ifindex:  ifi.Index,
 		Pkttype:  unix.PACKET_HOST,
 	}); err != nil {
@@ -131,12 +129,6 @@ func newETHConn(network string, ifi *net.Interface) (*ETHConn, error) {
 		proto: proto,
 		ifi:   ifi,
 	}, nil
-}
-
-func htons(b uint16) uint16 {
-	return binary.BigEndian.Uint16(
-		binary.NativeEndian.AppendUint16(nil, b),
-	)
 }
 
 func (c *ETHConn) Read(ip []byte) (int, error) {

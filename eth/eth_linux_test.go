@@ -13,8 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lysShub/rsocket/device/tun"
-	"github.com/lysShub/rsocket/route"
+	"github.com/lysShub/rsocket/device/tap"
 	"github.com/lysShub/rsocket/test"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -69,21 +68,28 @@ func Test_Read(t *testing.T) {
 }
 
 func Test_Write1(t *testing.T) {
-	t.Skip("not support tun device")
+	// t.Skip("not support tun device, but eth conn is base on packet-socket")
+	t.Skip("tap device can't work in wsl")
 
 	tt := test.CreateTunTuple(t)
 	pack := func() []byte {
-		es, err := route.GetTable()
+		// es, err := route.GetTable()
+		// require.NoError(t, err)
+
+		// clientEntry, err := es.MatchRoot(tt.Addr1)
+		// require.NoError(t, err)
+		// src, err := clientEntry.HardwareAddr()
+		// require.NoError(t, err)
+
+		// serverEntry, err := es.MatchRoot(tt.Addr2)
+		// require.NoError(t, err)
+		// dst, err := serverEntry.HardwareAddr()
+		// require.NoError(t, err)
+
+		src, err := tt.Ap1.Hardware()
 		require.NoError(t, err)
 
-		clientEntry, err := es.MatchRoot(tt.Addr1)
-		require.NoError(t, err)
-		src, err := clientEntry.HardwareAddr()
-		require.NoError(t, err)
-
-		serverEntry, err := es.MatchRoot(tt.Addr2)
-		require.NoError(t, err)
-		dst, err := serverEntry.HardwareAddr()
+		dst, err := tt.Ap2.Hardware()
 		require.NoError(t, err)
 
 		ip := test.BuildRawTCP(t,
@@ -126,8 +132,10 @@ func Test_Write1(t *testing.T) {
 	// sender
 	ec, err := NewETHName("eth:ip4", tt.Name1)
 	require.NoError(t, err)
-	_, err = ec.Write(pack[14:]) // tun device, juse send ip
+	_, err = ec.Write(pack) // tun device, juse send ip
 	require.NoError(t, err)
+
+	time.Sleep(time.Second * 10)
 }
 
 func Test_Write(t *testing.T) {
@@ -136,7 +144,7 @@ func Test_Write(t *testing.T) {
 
 func Test_Deadline(t *testing.T) {
 	name := "testeth"
-	tt, err := tun.CreateTun(name)
+	tt, err := tap.Create(name)
 	require.NoError(t, err)
 	defer tt.Close()
 	err = tt.SetAddr(netip.MustParsePrefix("10.0.1.3/24"))
