@@ -14,7 +14,7 @@ import (
 
 func Test_Listen(t *testing.T) {
 
-	t.Skip("not support")
+	t.Skip("not support loopback")
 
 	t.Run("accept-once", func(t *testing.T) {
 		addr := netip.AddrPortFrom(test.LocIP(), test.RandPort())

@@ -15,12 +15,10 @@ func Test_GetBestInterface(t *testing.T) {
 	t.Run("0.0.0.0", func(t *testing.T) {
 		entry, err := route.GetBestInterface(netip.IPv4Unspecified())
 		require.NoError(t, err)
-		s := entry.Addr.String()
-		t.Log(s)
 		require.Equal(t, test.LocIP(), entry.Dest.Addr())
 
 		expIdx := test.GetIndex(t, test.LocIP())
-		require.Equal(t, expIdx, entry.Ifidx)
+		require.Equal(t, expIdx, entry.Interface)
 	})
 
 	t.Run("127.0.0.1", func(t *testing.T) {
@@ -28,7 +26,7 @@ func Test_GetBestInterface(t *testing.T) {
 
 		entry, err := route.GetBestInterface(dst)
 		require.NoError(t, err)
-		require.Equal(t, int32(1), entry.Ifidx)
+		require.Equal(t, int32(1), entry.Interface)
 
 		require.Equal(t, dst, entry.Dest.Addr())
 	})
@@ -50,7 +48,7 @@ func Test_GetBestInterface(t *testing.T) {
 		require.Equal(t, test.LocIP(), entry.Dest.Addr())
 
 		expIdx := test.GetIndex(t, test.LocIP())
-		require.Equal(t, expIdx, entry.Ifidx)
+		require.Equal(t, expIdx, entry.Interface)
 	})
 
 }

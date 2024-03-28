@@ -2,19 +2,56 @@ package route
 
 import (
 	"fmt"
-	"net"
 	"net/netip"
+	"sort"
+	"strconv"
+	"strings"
 	"syscall"
 
-	"github.com/lysShub/rsocket/helper"
 	"github.com/pkg/errors"
 )
 
+type Entry struct {
+	// dest subnet
+	Dest netip.Prefix
+
+	// nextHop addr, as gateway
+	Next netip.Addr
+
+	// src interface index and correspond address, actually one
+	// interface can with multiple addresses, just select one.
+	Interface int32
+	Addr      netip.Addr
+
+	Metric int32
+}
+
+func (e Entry) Valid() bool {
+	return e.Dest.IsValid() && e.Interface != 0
+}
+
+func (e Entry) ifstr() string {
+	if !e.Addr.IsValid() {
+		return strconv.Itoa(int(e.Interface))
+	} else {
+		return fmt.Sprintf("%d(%s)", e.Interface, e.Addr.String())
+	}
+}
+
 type Table []Entry
 
+func (t Table) Sort() {
+	sort.Sort(tableSortImpl(t))
+}
+
 // Match route longest prefix Match
-func (es Table) Match(dst netip.Addr) Entry {
-	for _, e := range es {
+func (t Table) Match(dst netip.Addr) Entry {
+	t.Sort()
+	return t.match(dst)
+}
+
+func (t Table) match(dst netip.Addr) Entry {
+	for _, e := range t {
 		if e.Dest.Contains(dst) {
 			return e
 		}
@@ -22,9 +59,11 @@ func (es Table) Match(dst netip.Addr) Entry {
 	return Entry{}
 }
 
-func (es Table) MatchRoot(dst netip.Addr) (Entry, error) {
+func (t Table) MatchRoot(dst netip.Addr) (Entry, error) {
+	t.Sort()
+
 	var cnt int
-	e := es.matchRoot(dst, &cnt)
+	e := t.matchRoot(dst, &cnt)
 	if !e.Valid() {
 		if cnt > loopLimit {
 			return Entry{}, errors.New("cycle route")
@@ -36,66 +75,94 @@ func (es Table) MatchRoot(dst netip.Addr) (Entry, error) {
 
 const loopLimit = 64
 
-func (es Table) matchRoot(dst netip.Addr, cnt *int) Entry {
+func (t Table) matchRoot(dst netip.Addr, cnt *int) Entry {
 	*cnt = *cnt + 1
 	if *cnt > loopLimit {
 		return Entry{}
 	}
 
-	e := es.Match(dst)
+	e := t.match(dst)
 	if e.Dest.IsSingleIP() {
 		return e
 	}
-	return es.matchRoot(e.Addr, cnt)
+	return t.matchRoot(e.Addr, cnt)
 }
 
-type Entry struct {
-	Dest    netip.Prefix
-	Addr    netip.Addr
-	Ifidx   int32
-	Metrics int32
-}
-
-func (e *Entry) Valid() bool {
-	return e != nil && e.Dest.IsValid() && e.Ifidx != 0 && e.Addr.IsValid()
-}
-
-func (e *Entry) String() string {
-	if !e.Valid() {
-		return ""
-	}
-
-	return fmt.Sprintf(
-		"%s %s %d %d",
-		e.Dest.String(), e.Addr.String(), e.Ifidx, e.Metrics,
+func (t Table) String() string {
+	const cols = 4
+	var (
+		es             = []string{"dest", "next", "interface", "metric"}
+		maxs [cols]int = [cols]int{len(es[0]), len(es[1]), len(es[2]), len(es[3])}
 	)
-}
 
-func (e *Entry) Name() (string, error) {
-	return helper.IoctlGifname(int(e.Ifidx))
-}
-
-func (e *Entry) HardwareAddr() (net.HardwareAddr, error) {
-	name, err := e.Name()
-	if err != nil {
-		return nil, err
+	for _, e := range t {
+		next := e.Next.String()
+		if !e.Next.IsValid() {
+			next = ""
+		}
+		for _, str := range []string{
+			e.Dest.String(),
+			next,
+			e.ifstr(),
+			strconv.Itoa(int(e.Metric)),
+		} {
+			es = append(es, str)
+			i := (len(es) - 1) % cols
+			maxs[i] = max(maxs[i], len(str))
+		}
 	}
-	return helper.IoctlGifhwaddr(name)
+	for i, e := range maxs {
+		maxs[i] = e + 4
+	}
+
+	var s = &strings.Builder{}
+	for i, e := range es {
+		fixWrite(s, e, maxs[i%cols])
+		if i%cols == 3 {
+			s.WriteByte('\n')
+		}
+	}
+	return s.String()
+}
+func fixWrite(s *strings.Builder, str string, size int) {
+	s.WriteString(str)
+	n := size - len(str)
+	for i := 0; i < n; i++ {
+		s.WriteRune(' ')
+	}
 }
 
-type entriesSortImpl Table
+type tableSortImpl Table
 
-func (es entriesSortImpl) Len() int { return len(es) }
-func (es entriesSortImpl) Less(i, j int) bool {
+func (es tableSortImpl) Len() int { return len(es) }
+func (es tableSortImpl) Less(i, j int) bool {
 	// require desc
 	bi, bj := es[i].Dest.Bits(), es[j].Dest.Bits()
-
 	if bi >= bj {
 		if bi == bj {
-			return es[i].Metrics <= es[j].Metrics
+			return es[i].Metric <= es[j].Metric
 		}
 		return true
 	}
 	return false
 }
-func (es entriesSortImpl) Swap(i, j int) { es[i], es[j] = es[j], es[i] }
+func (es tableSortImpl) Swap(i, j int) { es[i], es[j] = es[j], es[i] }
+
+func GetBestInterface(dst netip.Addr) (entry Entry, err error) {
+	if !dst.IsValid() {
+		return Entry{}, errors.Errorf("invalid address %s", dst.String())
+	}
+
+	var es Table
+	if dst.Is4() {
+		if es, err = GetTable(); err != nil {
+			return Entry{}, err
+		}
+	} else {
+		return Entry{}, errors.New("not support ipv6")
+	}
+
+	es.Sort()
+	e, err := es.MatchRoot(dst)
+	return e, err
+}

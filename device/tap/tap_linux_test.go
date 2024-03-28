@@ -1,7 +1,7 @@
 package tap_test
 
 import (
-	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"github.com/lysShub/rsocket/device/tap"
+	"github.com/lysShub/rsocket/test"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_Create(t *testing.T) {
-	ap, err := tap.Create("test1")
+	ap, err := tap.Create("testcreate")
 	require.NoError(t, err)
 	defer ap.Close()
 
@@ -41,12 +42,11 @@ func Test_Create(t *testing.T) {
 	}
 }
 
-func Test_Conn(t *testing.T) {
-	t.Skip("can't test on wsl")
+func Test_Conn_Server(t *testing.T) {
+	// addr := netip.MustParsePrefix("172.18.0.1/24")
+	addr := netip.PrefixFrom(test.LocIP().Next(), 32)
 
-	addr := netip.MustParsePrefix("10.0.3.7/24")
-
-	ap, err := tap.Create("test1")
+	ap, err := tap.Create("tap1")
 	require.NoError(t, err)
 	defer ap.Close()
 	err = ap.SetAddr(addr)
@@ -71,7 +71,7 @@ func Test_Conn(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s:80", rip.String()), nil)
+	req, err := http.NewRequest("GET", "http://baidu.com", nil)
 	require.NoError(t, err)
 	req.Host = "baidu.com"
 
@@ -81,8 +81,45 @@ func Test_Conn(t *testing.T) {
 				return conn, nil
 			},
 		},
-		Timeout: time.Second * 5,
 	}).Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
+}
+
+func Test_Loopback(t *testing.T) {
+	var (
+		caddr = netip.AddrPortFrom(netip.AddrFrom4([4]byte{10, 0, 3, 1}), 19986)
+
+		// caddr = netip.AddrPortFrom(test.LocIP().Next(), 19986)
+		saddr = netip.AddrPortFrom(test.LocIP(), 8080)
+	)
+
+	var ret = make(chan struct{})
+	go func() {
+		defer func() { close(ret) }()
+		l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: saddr.Addr().AsSlice(), Port: int(saddr.Port())})
+		require.NoError(t, err)
+		defer l.Close()
+
+		conn, err := l.AcceptTCP()
+		require.NoError(t, err)
+		defer conn.Close()
+		io.Copy(conn, conn)
+	}()
+	time.Sleep(time.Second)
+
+	ap, err := tap.Create("tap1")
+	require.NoError(t, err)
+	defer ap.Close()
+	err = ap.SetAddr(netip.PrefixFrom(caddr.Addr(), 32))
+	require.NoError(t, err)
+
+	conn, err := net.DialTCP("tcp",
+		&net.TCPAddr{IP: caddr.Addr().AsSlice(), Port: 19986},
+		&net.TCPAddr{IP: test.LocIP().AsSlice(), Port: 8080},
+	)
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+
+	<-ret
 }

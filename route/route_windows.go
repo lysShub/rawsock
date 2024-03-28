@@ -4,57 +4,59 @@
 package route
 
 import (
-	"net"
 	"net/netip"
 
+	"github.com/lysShub/rsocket/helper"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
+	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 )
 
-func Gateway(dst netip.Addr) (gateway netip.Prefix, ifIdx int, err error) {
-	var idx uint32
-	if dst.Is4() {
-		err = windows.GetBestInterfaceEx(&windows.SockaddrInet4{Addr: dst.As4()}, &idx)
-	} else {
-		err = windows.GetBestInterfaceEx(&windows.SockaddrInet6{Addr: dst.As16()}, &idx)
-	}
+// GetTable get ipv4 route entries
+func GetTable() (table Table, err error) {
+
+	rows, err := winipcfg.GetIPForwardTable2(windows.AF_INET)
 	if err != nil {
-		return netip.Prefix{}, 0, errors.WithStack(err)
+		return nil, errors.WithStack(err)
+	}
+	for _, e := range rows {
+		// https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipforward_row2
+		next := e.NextHop.Addr()
+		if next.IsUnspecified() {
+			next = netip.Addr{}
+		}
+		table = append(table, Entry{
+			Dest:      e.DestinationPrefix.Prefix(),
+			Next:      next,
+			Interface: int32(e.InterfaceIndex),
+			Metric:    int32(e.Metric),
+		})
 	}
 
-	addrs, err := (&net.Interface{Index: int(idx)}).Addrs()
-	if err != nil {
-		return netip.Prefix{}, 0, errors.WithStack(err)
-	}
-	for _, addr := range addrs {
-		if addr, ok := addr.(*net.IPNet); ok {
-			ones, _ := addr.Mask.Size()
-			if dst.Is4() && addr.IP.To4() != nil {
-				gateway = netip.PrefixFrom(
-					netip.AddrFrom4([4]byte(addr.IP.To4())),
-					ones,
-				)
-				return gateway, int(idx), nil
-			} else if dst.Is6() {
-				gateway = netip.PrefixFrom(
-					netip.AddrFrom16([16]byte(addr.IP)),
-					ones,
-				)
-				return gateway, int(idx), nil
-			}
+	var ipmap = map[uint32]netip.Addr{}
+	{
+		var size uint32
+		err := helper.GetIpAddrTable(nil, &size, false)
+		if !errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
+			return nil, err
 		}
-	}
-	return netip.Prefix{}, int(idx), errors.Errorf("addapter index %d without valid address", idx)
-}
 
-// Loopback validate the address tuple is windows loopback
-func Loopback(src, dst netip.Addr) bool {
-	if src.IsUnspecified() {
-		if addr, _, err := Gateway(dst); err != nil {
-			return false
-		} else {
-			src = addr.Addr()
+		var b = make([]byte, size)
+		err = helper.GetIpAddrTable(b, &size, true)
+		if err != nil {
+			return nil, err
+		}
+		ipaddrs := helper.MibIpAddrTable(b).MibIpAddrRows()
+		for _, e := range ipaddrs {
+			ipmap[e.Index] = e.Addr().Addr()
 		}
 	}
-	return src == dst
+
+	for i, e := range table {
+		a, has := ipmap[uint32(e.Interface)]
+		if has {
+			table[i].Addr = a
+		}
+	}
+	return table, nil
 }

@@ -254,7 +254,7 @@ func (c *connEth) init(ipcfg *ipstack.Configs) (err error) {
 		return err
 	}
 
-	ifi, err := net.InterfaceByIndex(int(entry.Ifidx))
+	ifi, err := net.InterfaceByIndex(int(entry.Interface))
 	if err != nil {
 		return errors.WithStack(err)
 	} else {
@@ -315,17 +315,17 @@ func (c *connEth) init(ipcfg *ipstack.Configs) (err error) {
 
 func (c *connEth) Close() (err error) {
 	if c.tcp != nil {
-		if e := c.tcp.Close(); err == nil {
+		if e := c.tcp.Close(); e != nil {
 			err = e
 		}
 	}
 	if c.raw != nil {
-		if e := c.raw.Close(); err == nil {
+		if e := c.raw.Close(); e != nil {
 			err = e
 		}
 	}
 	if c.closeFn != nil {
-		if e := c.closeFn(c.raddr, c.isn); err == nil {
+		if e := c.closeFn(c.raddr, c.isn); e != nil {
 			err = e
 		}
 	}
