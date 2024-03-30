@@ -20,8 +20,8 @@ func GetTable() (table Table, err error) {
 		return nil, errors.WithStack(err)
 	}
 	for _, e := range rows {
-		// https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipforward_row2
 		next := e.NextHop.Addr()
+		// https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipforward_row2
 		if next.IsUnspecified() {
 			next = netip.Addr{}
 		}

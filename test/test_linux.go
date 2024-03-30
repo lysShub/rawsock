@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"net/netip"
 
-	"github.com/lysShub/rsocket/device/tap"
+	"github.com/lysShub/rsocket/device/tun"
 
 	"github.com/stretchr/testify/require"
 )
 
 type NicTuple struct {
-	Ap1, Ap2     *tap.Tap
+	Ap1, Ap2     *tun.TunTap
 	Name1, Name2 string
 	Addr1, Addr2 netip.Addr
 }
@@ -40,7 +40,7 @@ func CreateTunTuple(t require.TestingT) *NicTuple {
 	for i, addr := range addrs {
 		name := fmt.Sprintf("test%d", i+1)
 
-		ap, err := tap.Create(name)
+		ap, err := tun.Tap(name)
 		require.NoError(t, err)
 
 		err = ap.SetAddr(netip.PrefixFrom(addr, 24))

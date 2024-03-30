@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lysShub/rsocket/device/tap"
+	"github.com/lysShub/rsocket/device/tun"
 	"github.com/lysShub/rsocket/test"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -144,7 +144,7 @@ func Test_Write(t *testing.T) {
 
 func Test_Deadline(t *testing.T) {
 	name := "testeth"
-	tt, err := tap.Create(name)
+	tt, err := tun.Tap(name)
 	require.NoError(t, err)
 	defer tt.Close()
 	err = tt.SetAddr(netip.MustParsePrefix("10.0.1.3/24"))
