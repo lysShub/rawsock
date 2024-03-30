@@ -17,3 +17,5 @@ type Raw interface {
 	SetReadDeadline(t time.Time) error
 	SetWriteDeadline(t time.Time) error
 }
+
+// net.IPConn

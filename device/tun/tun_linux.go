@@ -179,3 +179,8 @@ func (t *TunTap) Read(ctx context.Context, eth []byte) (int, error) {
 		return n, nil
 	}
 }
+
+func (t *TunTap) Write(_ context.Context, eth []byte) (int, error) {
+	n, err := t.fd.Write(eth)
+	return n, err
+}
