@@ -1,4 +1,4 @@
-Deprecated: plan A 实现不好，plan B 的假设不成立
+Deprecated: plan A 实现不好，plan B 的假设不成立(使用eth raw socket)
 
 
 测试tun/tap 设备处理全局数据包：
