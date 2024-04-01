@@ -20,17 +20,19 @@ type Entry struct {
 
 	// src interface index and correspond address, actually one
 	// interface can with multiple addresses, just select one.
-	Interface int32
+	Interface uint32
 	Addr      netip.Addr
 
-	Metric int32
+	Metric uint32
+
+	raw Raw
 }
 
 func (e Entry) Valid() bool {
 	return e.Dest.IsValid() && e.Interface != 0
 }
 
-func (e Entry) ifstr() string {
+func (e Entry) ifistr() string {
 	if !e.Addr.IsValid() {
 		return strconv.Itoa(int(e.Interface))
 	} else {
@@ -103,7 +105,7 @@ func (t Table) String() string {
 		for _, str := range []string{
 			e.Dest.String(),
 			next,
-			e.ifstr(),
+			e.ifistr(),
 			strconv.Itoa(int(e.Metric)),
 		} {
 			es = append(es, str)

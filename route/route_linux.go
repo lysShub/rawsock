@@ -14,6 +14,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+type Raw struct{}
+
 func (e *Entry) Name() (string, error) {
 	return helper.IoctlGifname(int(e.Interface))
 }
@@ -51,15 +53,17 @@ func GetTable() (Table, error) {
 			e := collectEntry(attrs, rt.Dst_len)
 			if e.Next.IsValid() {
 				e.Dest = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
-				name, err := helper.IoctlGifname(int(e.Interface))
-				if err != nil {
-					return nil, err
+				if !e.Addr.IsValid() {
+					name, err := helper.IoctlGifname(int(e.Interface))
+					if err != nil {
+						return nil, err
+					}
+					addr, err := helper.IoctlGifaddr(name)
+					if err != nil {
+						return nil, err
+					}
+					e.Addr = addr.Addr()
 				}
-				addr, err := helper.IoctlGifaddr(name)
-				if err != nil {
-					return nil, err
-				}
-				e.Addr = addr.Addr()
 			}
 			es = append(es, e)
 		case unix.NLMSG_DONE:
@@ -73,7 +77,6 @@ func GetTable() (Table, error) {
 			return nil, errors.Errorf("unexpect nlmsghdr type 0x%02x", m.Header.Type)
 		}
 	}
-
 	return es, nil
 }
 
@@ -91,9 +94,11 @@ func collectEntry(attrs []syscall.NetlinkRouteAttr, ones uint8) Entry {
 		case unix.RTA_SRC, unix.RTA_PREFSRC:
 			e.Addr, _ = netip.AddrFromSlice(attr.Value)
 		case unix.RTA_OIF:
-			e.Interface = *(*int32)(unsafe.Pointer(unsafe.SliceData(attr.Value)))
-		case unix.RTA_METRICS:
-			e.Metric = *(*int32)(unsafe.Pointer(unsafe.SliceData(attr.Value)))
+			idx := *(*int32)(unsafe.Pointer(unsafe.SliceData(attr.Value)))
+			e.Interface = uint32(idx)
+		case unix.RTA_PRIORITY: // unix.RTA_METRICS
+			metric := *(*int32)(unsafe.Pointer(unsafe.SliceData(attr.Value)))
+			e.Metric = uint32(metric)
 		}
 	}
 	return e

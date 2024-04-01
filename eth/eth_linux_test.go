@@ -338,7 +338,3 @@ func Test_Tun_Device(t *testing.T) {
 		}
 	})
 }
-
-func TestXxxx(t *testing.T) {
-
-}

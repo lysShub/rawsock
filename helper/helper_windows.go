@@ -13,12 +13,15 @@ import (
 	"github.com/lysShub/rsocket/test/debug"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
+	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 )
 
 var (
-	iphlpapi              = windows.NewLazySystemDLL("iphlpapi.dll")
-	procGetIpForwardTable = iphlpapi.NewProc("GetIpForwardTable")
-	procGetIpAddrTable    = iphlpapi.NewProc("GetIpAddrTable")
+	iphlpapi                = windows.NewLazySystemDLL("iphlpapi.dll")
+	procGetIpForwardTable   = iphlpapi.NewProc("GetIpForwardTable")
+	procGetIpAddrTable      = iphlpapi.NewProc("GetIpAddrTable")
+	procGetIpForwardEntry2  = iphlpapi.NewProc("GetIpForwardEntry2")
+	procGetIpInterfaceEntry = iphlpapi.NewProc("GetIpInterfaceEntry")
 )
 
 // GetIpForwardTable get sorted ip route entries
@@ -164,4 +167,26 @@ func (r MibIpAddrRow) Addr() netip.Prefix {
 	return netip.PrefixFrom(
 		netip.AddrFrom4([4]byte(a)), ones,
 	)
+}
+
+func GetIpForwardEntry2(row *winipcfg.MibIPforwardRow2) error {
+	r1, _, _ := syscall.SyscallN(
+		procGetIpForwardEntry2.Addr(),
+		uintptr(unsafe.Pointer(row)),
+	)
+	if r1 == windows.NO_ERROR {
+		return nil
+	}
+	return syscall.Errno(r1)
+}
+
+func GetIpInterfaceEntry(entry *winipcfg.MibIPInterfaceRow) error {
+	r1, _, _ := syscall.SyscallN(
+		procGetIpInterfaceEntry.Addr(),
+		uintptr(unsafe.Pointer(entry)),
+	)
+	if r1 == windows.NO_ERROR {
+		return nil
+	}
+	return syscall.Errno(r1)
 }
