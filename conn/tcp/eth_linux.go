@@ -200,7 +200,7 @@ type connEth struct {
 	// todo: set buff 0
 	tcp *net.TCPListener
 
-	raw      *eth.ETHConn
+	raw      *eth.Conn
 	ipstack  *ipstack.IPStack
 	outEthdr [header.EthernetMinimumSize]byte
 	inEthdr  [header.EthernetMinimumSize]byte
@@ -260,13 +260,13 @@ func (c *connEth) init(ipcfg *ipstack.Configs) (err error) {
 	} else {
 		if c.laddr.Addr().Is4() {
 			proto = header.IPv4ProtocolNumber
-			c.raw, err = eth.NewETHIdx("eth:ip4", ifi.Index)
+			c.raw, err = eth.Listen("eth:ip4", ifi.Index)
 			if err != nil {
 				return err
 			}
 		} else {
 			proto = header.IPv6ProtocolNumber
-			c.raw, err = eth.NewETHIdx("eth:ip6", ifi.Index)
+			c.raw, err = eth.Listen("eth:ip6", ifi.Index)
 			if err != nil {
 				return err
 			}

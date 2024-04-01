@@ -162,14 +162,15 @@ func (t *TunTap) Hardware() (net.HardwareAddr, error) {
 
 const ctxPeriod = time.Millisecond * 100
 
-func (t *TunTap) Read(ctx context.Context, eth []byte) (int, error) {
+// Read read ip(tun)/eth(tap) outgoing device packet
+func (t *TunTap) Read(ctx context.Context, b []byte) (int, error) {
 	for {
 		err := t.fd.SetReadDeadline(time.Now().Add(ctxPeriod))
 		if err != nil {
 			return 0, errors.WithStack(err)
 		}
 
-		n, err := t.fd.Read(eth)
+		n, err := t.fd.Read(b)
 		if err != nil {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				continue
@@ -178,4 +179,9 @@ func (t *TunTap) Read(ctx context.Context, eth []byte) (int, error) {
 		}
 		return n, nil
 	}
+}
+
+// Write write ip(tun)/eth(tap) income device packet
+func (t *TunTap) Write(_ context.Context, b []byte) (int, error) {
+	return t.fd.Write(b)
 }

@@ -7,8 +7,10 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"testing"
 	"time"
 
+	"github.com/go-ping/ping"
 	"github.com/pkg/errors"
 
 	"github.com/lysShub/rsocket/conn"
@@ -101,42 +103,48 @@ func BuildTCPSync(t require.TestingT, laddr, raddr netip.AddrPort) header.TCP {
 }
 
 func ValidIP(t require.TestingT, ip []byte) {
-	var ipheader header.Network
+	var iphdr header.Network
 	var totalLen int
 	switch header.IPVersion(ip) {
 	case 4:
 		ip := header.IPv4(ip)
 		require.True(t, ip.IsChecksumValid())
-		ipheader = ip
+		iphdr = ip
 		totalLen = int(ip.TotalLength())
 	case 6:
-		ipheader = header.IPv6(ip)
+		iphdr = header.IPv6(ip)
 		totalLen = int(header.IPv6(ip).PayloadLength()) + header.IPv6MinimumSize
 	default:
 	}
 	require.Equal(t, totalLen, len(ip))
 
 	pseudoSum1 := header.PseudoHeaderChecksum(
-		ipheader.TransportProtocol(),
-		ipheader.SourceAddress(),
-		ipheader.DestinationAddress(),
+		iphdr.TransportProtocol(),
+		iphdr.SourceAddress(),
+		iphdr.DestinationAddress(),
 		0,
 	)
 
-	switch ipheader.TransportProtocol() {
+	switch iphdr.TransportProtocol() {
 	case header.TCPProtocolNumber:
-		ValidTCP(t, ipheader.Payload(), pseudoSum1)
+		ValidTCP(t, iphdr.Payload(), pseudoSum1)
 	case header.UDPProtocolNumber:
-		udp := header.UDP(ipheader.Payload())
+		udp := header.UDP(iphdr.Payload())
 		psum := header.PseudoHeaderChecksum(
-			ipheader.TransportProtocol(),
-			ipheader.SourceAddress(),
-			ipheader.DestinationAddress(),
+			iphdr.TransportProtocol(),
+			iphdr.SourceAddress(),
+			iphdr.DestinationAddress(),
 			uint16(len(udp)),
 		)
 
 		sum := checksum.Checksum(udp, psum)
 		require.Equal(t, uint16(0xffff), sum)
+	case header.ICMPv4ProtocolNumber:
+		icmp := header.ICMPv4(iphdr.Payload())
+		sum := checksum.Checksum(icmp, 0)
+		require.Equal(t, uint16(0xffff), sum)
+	default:
+		panic("")
 	}
 }
 
@@ -188,6 +196,47 @@ func BuildRawTCP(t require.TestingT, laddr, raddr netip.AddrPort, payload []byte
 	)
 
 	return b
+}
+
+func BuildICMP(t require.TestingT, src, dst netip.Addr, typ header.ICMPv4Type, msg []byte) header.IPv4 {
+	require.Zero(t, len(msg)%4)
+
+	var iphdr = make(header.IPv4, 28+len(msg))
+	iphdr.Encode(&header.IPv4Fields{
+		TOS:            0,
+		TotalLength:    uint16(len(iphdr)),
+		ID:             uint16(rand.Uint32()),
+		Flags:          0,
+		FragmentOffset: 0,
+		TTL:            128,
+		Protocol:       uint8(header.ICMPv4ProtocolNumber),
+		Checksum:       0,
+		SrcAddr:        tcpip.AddrFromSlice(src.AsSlice()),
+		DstAddr:        tcpip.AddrFromSlice(dst.AsSlice()),
+	})
+	iphdr.SetChecksum(^checksum.Checksum(iphdr[:iphdr.HeaderLength()], 0))
+	require.True(t, iphdr.IsChecksumValid())
+
+	icmphdr := header.ICMPv4(iphdr.Payload())
+	icmphdr.SetType(typ)
+	icmphdr.SetCode(0)
+	icmphdr.SetChecksum(0)
+	icmphdr.SetIdent(0x0005)
+	icmphdr.SetSequence(0x0001)
+	copy(icmphdr.Payload(), msg)
+	icmphdr.SetChecksum(^checksum.Checksum(icmphdr, 0))
+
+	ValidIP(t, iphdr)
+	return iphdr
+}
+
+func PingOnce(t *testing.T, dst string) {
+	pinger, err := ping.NewPinger(dst)
+	require.NoError(t, err)
+	pinger.SetPrivileged(true)
+	pinger.Timeout = time.Millisecond
+	pinger.Count = 1
+	require.NoError(t, pinger.Run())
 }
 
 func StripIP(ip []byte) []byte {

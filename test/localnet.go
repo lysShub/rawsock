@@ -37,6 +37,23 @@ func GetIndex(t *testing.T, addr netip.Addr) int32 {
 }
 
 func LocIP() netip.Addr {
-	c, _ := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 53})
+	c, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: []byte{8, 8, 8, 8}, Port: 53})
+	if err != nil {
+		panic(err)
+	}
 	return netip.MustParseAddrPort(c.LocalAddr().String()).Addr()
+}
+
+func Baidu() netip.Addr {
+	ips, err := net.LookupIP("baidu.com")
+	if err != nil {
+		panic(err)
+	}
+
+	for _, e := range ips {
+		if ip := e.To4(); ip != nil {
+			return netip.AddrFrom4([4]byte(ip))
+		}
+	}
+	panic("not found ")
 }

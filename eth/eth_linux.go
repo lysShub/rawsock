@@ -4,61 +4,94 @@
 package eth
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"syscall"
 	"time"
 
 	"github.com/lysShub/rsocket/helper"
-	"github.com/lysShub/rsocket/test/debug"
-	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
+	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 // https://man7.org/linux/man-pages/man7/packet.7.html
-type ETHConn struct {
+type Conn struct {
 	fd  *os.File
 	raw syscall.RawConn
 
-	proto uint16
-	ifi   *net.Interface
+	networkEndianProto uint16
+	ifi                *net.Interface
 }
 
-var _ net.Conn = (*ETHConn)(nil)
+var _ net.Conn = (*Conn)(nil)
 
-func NewETH(network string, addr net.HardwareAddr) (*ETHConn, error) {
-	ifs, err := net.Interfaces()
+func Listen(network string, addr any) (*Conn, error) {
+	proto, err := getproto(network)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
+	}
+	ifi, err := assertAddr(addr)
+	if err != nil {
+		return nil, err
 	}
 
-	var i *net.Interface
-	for _, e := range ifs {
-		if string(e.HardwareAddr) == string(addr) {
-			i = &e
-			break
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_DGRAM, int(helper.Htons(proto)))
+	if err != nil {
+		return nil, err
+	}
+
+	if err = unix.Bind(fd, &unix.SockaddrLinklayer{
+		Protocol: helper.Htons(proto),
+		Ifindex:  ifi.Index,
+		Pkttype:  unix.PACKET_HOST,
+	}); err != nil {
+		return nil, err
+	}
+
+	// for support dataline
+	if err = unix.SetNonblock(fd, true); err != nil {
+		return nil, err
+	}
+
+	f := os.NewFile(uintptr(fd), "")
+	raw, err := f.SyscallConn()
+	if err != nil {
+		unix.Close(fd)
+		return nil, err
+	}
+
+	return &Conn{
+		fd:                 f,
+		raw:                raw,
+		networkEndianProto: helper.Htons(proto),
+		ifi:                ifi,
+	}, nil
+}
+
+func assertAddr(addr any) (*net.Interface, error) {
+	switch addr := addr.(type) {
+	case string:
+		return net.InterfaceByName(addr)
+	case int:
+		return net.InterfaceByIndex(addr)
+	case net.HardwareAddr:
+		ifs, err := net.Interfaces()
+		if err != nil {
+			return nil, err
 		}
+		for _, e := range ifs {
+			if string(e.HardwareAddr) == string(addr) {
+				return &e, nil
+			}
+		}
+		return nil, fmt.Errorf("invalid hardware address %s", addr.String())
+	case *net.Interface:
+		return addr, nil
+	default:
+		return nil, fmt.Errorf("invalid ethernet address %V", addr)
 	}
-	if i == nil {
-		return nil, errors.Errorf("invalid hardware address %s", addr.String())
-	}
-	return newETHConn(network, i)
-}
-
-func NewETHName(network, name string) (*ETHConn, error) {
-	i, err := net.InterfaceByName(name)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	return newETHConn(network, i)
-}
-
-func NewETHIdx(network string, ifidx int) (*ETHConn, error) {
-	ifi, err := net.InterfaceByIndex(ifidx)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	return newETHConn(network, ifi)
 }
 
 func getproto(network string) (uint16, error) {
@@ -71,94 +104,86 @@ func getproto(network string) (uint16, error) {
 	case "eth", "eth:ip":
 		proto = unix.ETH_P_ALL
 	default:
-		return 0, errors.WithStack(&net.OpError{
+		return 0, &net.OpError{
 			Op: "socket", Net: "eth",
 			Err: net.UnknownNetworkError(network),
-		})
+		}
 	}
 	return proto, nil
 }
 
-func newETHConn(network string, ifi *net.Interface) (*ETHConn, error) {
-	proto, err := getproto(network)
+func (c *Conn) Read(eth []byte) (n int, err error) {
+	n, from, err := c.Recvfrom(eth[header.EthernetMinimumSize:], 0)
 	if err != nil {
-		return nil, err
-	}
-	if debug.Debug() {
-		hw, err := helper.IoctlGifhwaddr(ifi.Name)
-		if err != nil {
-			return nil, err
-		} else if string(hw) == string(make([]byte, 6)) {
-			// such as tun device
-			return nil, errors.Errorf("not support device %s without ethernet layer", ifi.Name)
-		}
+		return 0, err
 	}
 
-	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_DGRAM, int(helper.Htons(proto)))
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
+	header.Ethernet(eth).Encode(&header.EthernetFields{
+		SrcAddr: tcpip.LinkAddress(from),
+		DstAddr: tcpip.LinkAddress(c.ifi.HardwareAddr),
+		Type:    tcpip.NetworkProtocolNumber(c.networkEndianProto),
+	})
+	return n + header.EthernetMinimumSize, nil
+}
 
-	if err = unix.Bind(fd, &unix.SockaddrLinklayer{
-		Protocol: helper.Htons(proto),
-		Ifindex:  ifi.Index,
-		Pkttype:  unix.PACKET_HOST,
+func (c *Conn) Recvfrom(ip []byte, flags int) (n int, from net.HardwareAddr, err error) {
+	var src unix.Sockaddr
+	var operr error
+	if err = c.raw.Read(func(fd uintptr) (done bool) {
+		n, src, operr = unix.Recvfrom(int(fd), ip, 0)
+		return operr != syscall.EWOULDBLOCK
 	}); err != nil {
-		return nil, err
+		return 0, nil, err
+	}
+	if operr != nil {
+		return 0, nil, operr
 	}
 
-	if err = unix.SetNonblock(fd, true); err != nil {
-		return nil, errors.WithStack(err)
+	if src, ok := src.(*unix.SockaddrLinklayer); ok {
+		from = src.Addr[:src.Halen]
 	}
+	return n, from, nil
+}
 
-	f := os.NewFile(uintptr(fd), "")
-	if f == nil {
-		unix.Close(fd)
-		return nil, errors.New("invalid file descriptor")
-	}
-
-	raw, err := f.SyscallConn()
+func (c *Conn) Write(eth []byte) (n int, err error) {
+	to := net.HardwareAddr(header.Ethernet(eth).DestinationAddress())
+	err = c.WriteTo(eth[header.EthernetMinimumSize:], 0, to)
 	if err != nil {
-		unix.Close(fd)
-		return nil, err
+		return 0, err
+	}
+	return len(eth), nil
+}
+
+func (c *Conn) WriteTo(ip []byte, flags int, to net.HardwareAddr) (err error) {
+	dst := &unix.SockaddrLinklayer{
+		Protocol: c.networkEndianProto,
+		Ifindex:  c.ifi.Index,
+		Pkttype:  unix.PACKET_HOST,
+		Halen:    uint8(len(to)),
+	}
+	copy(dst.Addr[:], to)
+
+	var operr error
+	if err = c.raw.Write(func(fd uintptr) (done bool) {
+		operr = unix.Sendto(int(fd), ip, flags, dst)
+		return true
+	}); err != nil {
+		return err
+	}
+	if operr != nil {
+		return err
 	}
 
-	return &ETHConn{
-		fd:    f,
-		raw:   raw,
-		proto: proto,
-		ifi:   ifi,
-	}, nil
-}
-
-func (c *ETHConn) Read(ip []byte) (int, error) {
-	n, err := c.fd.Read(ip)
-	return n, err
-}
-
-func (c *ETHConn) Write(eth []byte) (int, error) {
-	// todo: valid loopback packet, not suppert
-
-	n, err := c.fd.Write(eth)
-	return n, err
-}
-
-func (c *ETHConn) Close() error {
-	return c.fd.Close()
-}
-
-func (c *ETHConn) LocalAddr() net.Addr {
-	return ETHAddr(c.ifi.HardwareAddr)
-}
-
-func (c *ETHConn) RemoteAddr() net.Addr {
 	return nil
 }
 
-func (c *ETHConn) SyscallConn() syscall.RawConn       { return c.raw }
-func (c *ETHConn) SetDeadline(t time.Time) error      { return c.fd.SetDeadline(t) }
-func (c *ETHConn) SetReadDeadline(t time.Time) error  { return c.fd.SetReadDeadline(t) }
-func (c *ETHConn) SetWriteDeadline(t time.Time) error { return c.fd.SetWriteDeadline(t) }
+func (c *Conn) Close() error                       { return c.fd.Close() }
+func (c *Conn) LocalAddr() net.Addr                { return ETHAddr(c.ifi.HardwareAddr) }
+func (c *Conn) RemoteAddr() net.Addr               { return nil }
+func (c *Conn) SyscallConn() syscall.RawConn       { return c.raw }
+func (c *Conn) SetDeadline(t time.Time) error      { return c.fd.SetDeadline(t) }
+func (c *Conn) SetReadDeadline(t time.Time) error  { return c.fd.SetReadDeadline(t) }
+func (c *Conn) SetWriteDeadline(t time.Time) error { return c.fd.SetWriteDeadline(t) }
 
 type ETHAddr net.HardwareAddr
 
