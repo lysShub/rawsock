@@ -51,20 +51,21 @@ func GetTable() (Table, error) {
 			}
 			rt := (*unix.RtMsg)(unsafe.Pointer(unsafe.SliceData(m.Data)))
 			e := collectEntry(attrs, rt.Dst_len)
-			if e.Next.IsValid() {
+			if !e.Dest.IsValid() {
 				e.Dest = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
-				if !e.Addr.IsValid() {
-					name, err := helper.IoctlGifname(int(e.Interface))
-					if err != nil {
-						return nil, err
-					}
-					addr, err := helper.IoctlGifaddr(name)
-					if err != nil {
-						return nil, err
-					}
-					e.Addr = addr.Addr()
-				}
 			}
+			if !e.Addr.IsValid() {
+				name, err := helper.IoctlGifname(int(e.Interface))
+				if err != nil {
+					return nil, err
+				}
+				addr, err := helper.IoctlGifaddr(name)
+				if err != nil {
+					return nil, err
+				}
+				e.Addr = addr.Addr()
+			}
+
 			es = append(es, e)
 		case unix.NLMSG_DONE:
 			i = len(msgs) // break

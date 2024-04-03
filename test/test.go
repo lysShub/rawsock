@@ -30,7 +30,7 @@ import (
 func calcChecksum() func(ipHdr header.IPv4) header.IPv4 {
 	var (
 		first   = true
-		calcIP  = false
+		calcIP  = true
 		calcTCP = true
 	)
 	return func(ipHdr header.IPv4) header.IPv4 {
@@ -301,7 +301,7 @@ func NewUstack(t require.TestingT, addr netip.Addr, handleLocal bool) *ustack {
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol},
 		HandleLocal:        handleLocal,
 	})
-	l := channel.New(4, 1536, "")
+	l := channel.New(4, 1500, "")
 
 	const nicid tcpip.NICID = 1234
 	err := st.CreateNIC(nicid, l)
@@ -369,7 +369,7 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw co
 			sum(ip.Data()) // todo: TSO?
 			ValidIP(t, ip.Data())
 
-			// iphdr := header.IPv4(ip.Bytes())
+			// iphdr := header.IPv4(ip.Data())
 			// tcphdr := header.TCP(iphdr.Payload())
 			// fmt.Printf(
 			// 	"%s:%d-->%s:%d	%s\n",

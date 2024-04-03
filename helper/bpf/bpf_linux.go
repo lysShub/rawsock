@@ -22,6 +22,25 @@ func SetRawBPF(raw syscall.RawConn, ins []bpf.Instruction) error {
 }
 
 func SetBPF(fd uintptr, ins []bpf.Instruction) error {
+	// drain buffered packet
+	// https://natanyellin.com/posts/ebpf-filtering-done-right/
+	err := setBPF(fd, []bpf.Instruction{bpf.RetConstant{Val: 0}})
+	if err != nil {
+		return err
+	}
+	var b = make([]byte, 1)
+	for {
+		n, _, _ := unix.Recvfrom(int(fd), b, unix.MSG_DONTWAIT)
+		if n < 0 {
+			break
+		}
+	}
+
+	err = setBPF(fd, ins)
+	return err
+}
+
+func setBPF(fd uintptr, ins []bpf.Instruction) error {
 	var prog *unix.SockFprog
 	if rawIns, err := bpf.Assemble(ins); err != nil {
 		return err

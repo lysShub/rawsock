@@ -27,12 +27,12 @@ type Conn struct {
 
 var _ net.Conn = (*Conn)(nil)
 
-func Listen(network string, addr any) (*Conn, error) {
+func Listen[T ifiSet](network string, ifi T) (*Conn, error) {
 	proto, err := getproto(network)
 	if err != nil {
 		return nil, err
 	}
-	ifi, err := assertAddr(addr)
+	i, err := assertAddr(ifi)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func Listen(network string, addr any) (*Conn, error) {
 
 	if err = unix.Bind(fd, &unix.SockaddrLinklayer{
 		Protocol: helper.Htons(proto),
-		Ifindex:  ifi.Index,
+		Ifindex:  i.Index,
 		Pkttype:  unix.PACKET_HOST,
 	}); err != nil {
 		return nil, err
@@ -66,31 +66,35 @@ func Listen(network string, addr any) (*Conn, error) {
 		fd:                 f,
 		raw:                raw,
 		networkEndianProto: helper.Htons(proto),
-		ifi:                ifi,
+		ifi:                i,
 	}, nil
 }
 
-func assertAddr(addr any) (*net.Interface, error) {
-	switch addr := addr.(type) {
+type ifiSet interface {
+	string | int | net.HardwareAddr | *net.Interface
+}
+
+func assertAddr[T ifiSet](ifi T) (*net.Interface, error) {
+	switch ifi := any(ifi).(type) {
 	case string:
-		return net.InterfaceByName(addr)
+		return net.InterfaceByName(ifi)
 	case int:
-		return net.InterfaceByIndex(addr)
+		return net.InterfaceByIndex(ifi)
 	case net.HardwareAddr:
 		ifs, err := net.Interfaces()
 		if err != nil {
 			return nil, err
 		}
 		for _, e := range ifs {
-			if string(e.HardwareAddr) == string(addr) {
+			if string(e.HardwareAddr) == string(ifi) {
 				return &e, nil
 			}
 		}
-		return nil, fmt.Errorf("invalid hardware address %s", addr.String())
+		return nil, fmt.Errorf("invalid hardware address %s", ifi.String())
 	case *net.Interface:
-		return addr, nil
+		return ifi, nil
 	default:
-		return nil, fmt.Errorf("invalid ethernet address %V", addr)
+		return nil, fmt.Errorf("invalid ethernet address %V", ifi)
 	}
 }
 
@@ -126,12 +130,16 @@ func (c *Conn) Read(eth []byte) (n int, err error) {
 	return n + header.EthernetMinimumSize, nil
 }
 
+func opdone(operr error) bool {
+	return operr != syscall.EWOULDBLOCK && operr != syscall.EAGAIN
+}
+
 func (c *Conn) Recvfrom(ip []byte, flags int) (n int, from net.HardwareAddr, err error) {
 	var src unix.Sockaddr
 	var operr error
 	if err = c.raw.Read(func(fd uintptr) (done bool) {
 		n, src, operr = unix.Recvfrom(int(fd), ip, 0)
-		return operr != syscall.EWOULDBLOCK
+		return opdone(operr)
 	}); err != nil {
 		return 0, nil, err
 	}
@@ -147,14 +155,14 @@ func (c *Conn) Recvfrom(ip []byte, flags int) (n int, from net.HardwareAddr, err
 
 func (c *Conn) Write(eth []byte) (n int, err error) {
 	to := net.HardwareAddr(header.Ethernet(eth).DestinationAddress())
-	err = c.WriteTo(eth[header.EthernetMinimumSize:], 0, to)
+	err = c.Sendto(eth[header.EthernetMinimumSize:], 0, to)
 	if err != nil {
 		return 0, err
 	}
 	return len(eth), nil
 }
 
-func (c *Conn) WriteTo(ip []byte, flags int, to net.HardwareAddr) (err error) {
+func (c *Conn) Sendto(ip []byte, flags int, to net.HardwareAddr) (err error) {
 	dst := &unix.SockaddrLinklayer{
 		Protocol: c.networkEndianProto,
 		Ifindex:  c.ifi.Index,
@@ -166,7 +174,7 @@ func (c *Conn) WriteTo(ip []byte, flags int, to net.HardwareAddr) (err error) {
 	var operr error
 	if err = c.raw.Write(func(fd uintptr) (done bool) {
 		operr = unix.Sendto(int(fd), ip, flags, dst)
-		return true
+		return opdone(operr)
 	}); err != nil {
 		return err
 	}
@@ -184,6 +192,7 @@ func (c *Conn) SyscallConn() syscall.RawConn       { return c.raw }
 func (c *Conn) SetDeadline(t time.Time) error      { return c.fd.SetDeadline(t) }
 func (c *Conn) SetReadDeadline(t time.Time) error  { return c.fd.SetReadDeadline(t) }
 func (c *Conn) SetWriteDeadline(t time.Time) error { return c.fd.SetWriteDeadline(t) }
+func (c *Conn) Interface() *net.Interface          { return c.ifi }
 
 type ETHAddr net.HardwareAddr
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/lysShub/rsocket/conn"
 	"github.com/lysShub/rsocket/eth"
+	"github.com/lysShub/rsocket/helper"
 	"github.com/lysShub/rsocket/helper/bpf"
 	"github.com/lysShub/rsocket/helper/ipstack"
 	"github.com/lysShub/rsocket/packet"
@@ -21,7 +22,7 @@ import (
 	"github.com/lysShub/rsocket/test/debug"
 	"github.com/mdlayher/arp"
 	"github.com/pkg/errors"
-	"gvisor.dev/gvisor/pkg/tcpip"
+	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
@@ -84,7 +85,7 @@ func ListenEth(laddr netip.AddrPort, opts ...conn.Option) (*listenerEth, error) 
 func (l *listenerEth) Close() error {
 	var err error
 	if l.tcp != nil {
-		if e := l.Close(); e != nil {
+		if e := l.tcp.Close(); e != nil {
 			err = e
 		}
 	}
@@ -104,9 +105,9 @@ func (l *listenerEth) Addr() netip.AddrPort {
 func (l *listenerEth) Accept() (conn.RawConn, error) {
 	var min, max = tcpSynSizeRange(l.addr.Addr().Is4())
 
-	var b = make([]byte, max)
+	var ip = make([]byte, max)
 	for {
-		n, err := l.raw.Read(b[:max])
+		n, err := l.raw.Read(ip[:max])
 		if err != nil {
 			return nil, err
 		} else if n < min {
@@ -116,14 +117,14 @@ func (l *listenerEth) Accept() (conn.RawConn, error) {
 
 		var raddr netip.AddrPort
 		var isn uint32
-		switch header.IPVersion(b) {
+		switch header.IPVersion(ip) {
 		case 4:
-			iphdr := header.IPv4(b[:n])
+			iphdr := header.IPv4(ip[:n])
 			tcphdr := header.TCP(iphdr.Payload())
 			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
 			isn = tcphdr.SequenceNumber()
 		case 6:
-			iphdr := header.IPv6(b[:n])
+			iphdr := header.IPv6(ip[:n])
 			tcphdr := header.TCP(iphdr.Payload())
 			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
 			isn = tcphdr.SequenceNumber()
@@ -193,26 +194,25 @@ func (l *listenerEth) deleteConn(raddr netip.AddrPort, isn uint32) error {
 	return nil
 }
 
-type connEth struct {
+type ConnEth struct {
 	laddr, raddr netip.AddrPort
 	isn          uint32
 
 	// todo: set buff 0
 	tcp *net.TCPListener
 
-	raw      *eth.Conn
-	ipstack  *ipstack.IPStack
-	outEthdr [header.EthernetMinimumSize]byte
-	inEthdr  [header.EthernetMinimumSize]byte
+	raw     *eth.Conn
+	ipstack *ipstack.IPStack
+	gateway net.HardwareAddr
 
 	ctxPeriod     time.Duration
 	completeCheck bool
 	closeFn       closeCallback
 }
 
-var _ conn.RawConn = (*connEth)(nil)
+var _ conn.RawConn = (*ConnEth)(nil)
 
-func ConnectEth(laddr, raddr netip.AddrPort, opts ...conn.Option) (*connEth, error) {
+func ConnectEth(laddr, raddr netip.AddrPort, opts ...conn.Option) (*ConnEth, error) {
 	cfg := conn.Options(opts...)
 	var c = newConnectEth(
 		laddr, raddr, 0,
@@ -229,8 +229,8 @@ func ConnectEth(laddr, raddr netip.AddrPort, opts ...conn.Option) (*connEth, err
 	return c, c.init(cfg.IPStack)
 }
 
-func newConnectEth(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallback, complete bool, ctxPeriod time.Duration) *connEth {
-	return &connEth{
+func newConnectEth(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallback, complete bool, ctxPeriod time.Duration) *ConnEth {
+	return &ConnEth{
 		laddr:         laddr,
 		raddr:         raddr,
 		isn:           isn,
@@ -240,80 +240,80 @@ func newConnectEth(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallb
 	}
 }
 
-func (c *connEth) init(ipcfg *ipstack.Configs) (err error) {
+func (c *ConnEth) init(ipcfg *ipstack.Configs) (err error) {
 	defer func() {
 		if err != nil {
 			c.Close()
 		}
 	}()
 
-	// create eth conn and set bpf filter
-	var proto tcpip.NetworkProtocolNumber
 	entry, err := route.GetBestInterface(c.raddr.Addr())
 	if err != nil {
 		return err
 	}
 
-	ifi, err := net.InterfaceByIndex(int(entry.Interface))
-	if err != nil {
-		return errors.WithStack(err)
-	} else {
-		if c.laddr.Addr().Is4() {
-			proto = header.IPv4ProtocolNumber
-			c.raw, err = eth.Listen("eth:ip4", ifi.Index)
-			if err != nil {
-				return err
-			}
-		} else {
-			proto = header.IPv6ProtocolNumber
-			c.raw, err = eth.Listen("eth:ip6", ifi.Index)
-			if err != nil {
-				return err
-			}
-		}
-		if err := bpf.SetRawBPF(
-			c.raw.SyscallConn(),
-			bpf.FilterEndpoint(header.TCPProtocolNumber, c.laddr, c.raddr),
-		); err != nil {
+	// set gateway mac address
+	var ifi *net.Interface
+	if !entry.Next.IsValid() {
+		// is on loopback
+		return errors.New("not support loopback connect")
+
+		lo, err := helper.LoopbackInterface()
+		if err != nil {
 			return err
+		}
+		ifi, err = net.InterfaceByName(lo)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		c.gateway = net.HardwareAddr(make([]byte, 6))
+	} else {
+		if debug.Debug() {
+			require.Equal(test.T(), c.laddr.Addr(), entry.Addr)
+		}
+		ifi, err = net.InterfaceByIndex(int(entry.Interface))
+		if err != nil {
+			return errors.WithStack(err)
+		}
+
+		// get gatway hardware address
+		if client, err := arp.Dial(c.raw.Interface()); err != nil {
+			return errors.WithStack(err)
+		} else {
+			defer client.Close()
+			if err = client.SetDeadline(time.Now().Add(time.Second * 3)); err != nil {
+				return errors.WithStack(err)
+			}
+
+			c.gateway, err = client.Resolve(entry.Next)
+			if err != nil {
+				return errors.WithStack(err)
+			}
 		}
 	}
 
-	//
+	// create eth conn and set bpf filter
+	c.raw, err = eth.Listen("eth:ip4", ifi)
+	if err != nil {
+		return err
+	}
+	if err := bpf.SetRawBPF(
+		c.raw.SyscallConn(),
+		bpf.FilterEndpoint(header.TCPProtocolNumber, c.raddr, c.laddr),
+	); err != nil {
+		return err
+	}
+
 	if c.ipstack, err = ipstack.New(
 		c.laddr.Addr(), c.raddr.Addr(),
 		header.TCPProtocolNumber, ipcfg.Unmarshal(),
 	); err != nil {
 		return err
 	}
-	if client, err := arp.Dial(ifi); err != nil {
-		return errors.WithStack(err)
-	} else {
-		defer client.Close()
-		if err = client.SetDeadline(time.Now().Add(time.Second * 3)); err != nil {
-			return errors.WithStack(err)
-		}
-
-		dst, err := client.Resolve(c.raddr.Addr())
-		if err != nil {
-			return errors.WithStack(err)
-		}
-
-		header.Ethernet(c.outEthdr[:]).Encode(&header.EthernetFields{
-			SrcAddr: tcpip.LinkAddress(c.raw.LocalAddr().(eth.ETHAddr)),
-			DstAddr: tcpip.LinkAddress(dst),
-			Type:    proto,
-		})
-		header.Ethernet(c.inEthdr[:]).Encode(&header.EthernetFields{
-			SrcAddr: tcpip.LinkAddress(dst),
-			DstAddr: tcpip.LinkAddress(c.raw.LocalAddr().(eth.ETHAddr)),
-			Type:    proto,
-		})
-	}
 	return nil
 }
 
-func (c *connEth) Close() (err error) {
+func (c *ConnEth) Close() (err error) {
 	if c.tcp != nil {
 		if e := c.tcp.Close(); e != nil {
 			err = e
@@ -332,7 +332,7 @@ func (c *connEth) Close() (err error) {
 	return err
 }
 
-func (c *connEth) Read(ctx context.Context, p *packet.Packet) (err error) {
+func (c *ConnEth) Read(ctx context.Context, p *packet.Packet) (err error) {
 	b := p.Data()
 	b = b[:cap(b)]
 
@@ -343,7 +343,7 @@ func (c *connEth) Read(ctx context.Context, p *packet.Packet) (err error) {
 			return err
 		}
 
-		n, err = c.raw.Read(b)
+		n, _, err = c.raw.Recvfrom(b, 0)
 		if err == nil {
 			break
 		} else if errors.Is(err, os.ErrDeadlineExceeded) {
@@ -359,6 +359,18 @@ func (c *connEth) Read(ctx context.Context, p *packet.Packet) (err error) {
 	}
 	p.SetLen(n)
 	if debug.Debug() {
+
+		iphdr := header.IPv4(p.Data())
+		tcphdr := header.TCP(iphdr.Payload())
+		fmt.Printf(
+			"recv %s:%d-->%s:%d	%s\n",
+			iphdr.SourceAddress(), tcphdr.SourcePort(),
+			iphdr.DestinationAddress(), tcphdr.DestinationPort(),
+			tcphdr.Flags(),
+		)
+		fmt.Println(iphdr)
+		fmt.Println()
+
 		test.ValidIP(test.T(), p.Data())
 	}
 	switch header.IPVersion(b) {
@@ -376,31 +388,37 @@ func (c *connEth) Read(ctx context.Context, p *packet.Packet) (err error) {
 	return nil
 }
 
-func (c *connEth) Write(ctx context.Context, p *packet.Packet) (err error) {
+func (c *ConnEth) Write(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
 	if debug.Debug() {
+		iphdr := header.IPv4(p.Data())
+		tcphdr := header.TCP(iphdr.Payload())
+		fmt.Printf(
+			"send %s:%d-->%s:%d	%s\n",
+			iphdr.SourceAddress(), tcphdr.SourcePort(),
+			iphdr.DestinationAddress(), tcphdr.DestinationPort(),
+			tcphdr.Flags(),
+		)
+
 		test.ValidIP(test.T(), p.Data())
 	}
-	p.Attach(c.outEthdr[:])
 
-	_, err = c.raw.Write(p.Data())
+	err = c.raw.Sendto(p.Data(), 0, c.gateway)
 	return err
 }
 
-func (c *connEth) Inject(ctx context.Context, p *packet.Packet) (err error) {
-	c.ipstack.AttachInbound(p)
-	if debug.Debug() {
-		test.ValidIP(test.T(), p.Data())
-	}
-	p.Attach(c.outEthdr[:])
+func (c *ConnEth) Inject(ctx context.Context, p *packet.Packet) (err error) {
+	return errors.New("todo: not support, need test")
 
-	_, err = c.raw.Write(p.Data())
-	return err
+	// c.ipstack.AttachInbound(p)
+	// if debug.Debug() {
+	// 	test.ValidIP(test.T(), p.Data())
+	// }
+	// // p.Attach(c.outEthdr[:])
+	// _, err = c.raw.Write(p.Data())
+	// return err
 }
 
-func (c *connEth) LocalAddr() netip.AddrPort {
-	return c.laddr
-}
-func (c *connEth) RemoteAddr() netip.AddrPort {
-	return c.raddr
-}
+func (c *ConnEth) LocalAddr() netip.AddrPort  { return c.laddr }
+func (c *ConnEth) RemoteAddr() netip.AddrPort { return c.raddr }
+func (c *ConnEth) Raw() *eth.Conn             { return c.raw }

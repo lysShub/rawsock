@@ -104,9 +104,9 @@ func (l *listenerRaw) Addr() netip.AddrPort {
 func (l *listenerRaw) Accept() (conn.RawConn, error) {
 	var min, max = tcpSynSizeRange(l.addr.Addr().Is4())
 
-	var b = make([]byte, max)
+	var ip = make([]byte, max)
 	for {
-		n, err := l.raw.Read(b[:max])
+		n, err := l.raw.Read(ip[:max])
 		if err != nil {
 			return nil, err
 		} else if n < min {
@@ -116,14 +116,14 @@ func (l *listenerRaw) Accept() (conn.RawConn, error) {
 
 		var raddr netip.AddrPort
 		var isn uint32
-		switch header.IPVersion(b) {
+		switch header.IPVersion(ip) {
 		case 4:
-			iphdr := header.IPv4(b[:n])
+			iphdr := header.IPv4(ip[:n])
 			tcphdr := header.TCP(iphdr.Payload())
 			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
 			isn = tcphdr.SequenceNumber()
 		case 6:
-			iphdr := header.IPv6(b[:n])
+			iphdr := header.IPv6(ip[:n])
 			tcphdr := header.TCP(iphdr.Payload())
 			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
 			isn = tcphdr.SequenceNumber()
@@ -356,9 +356,5 @@ func (c *connRaw) Close() error {
 	return err
 }
 
-func (c *connRaw) LocalAddr() netip.AddrPort {
-	return c.laddr
-}
-func (c *connRaw) RemoteAddr() netip.AddrPort {
-	return c.raddr
-}
+func (c *connRaw) LocalAddr() netip.AddrPort  { return c.laddr }
+func (c *connRaw) RemoteAddr() netip.AddrPort { return c.raddr }

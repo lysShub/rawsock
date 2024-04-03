@@ -167,57 +167,6 @@ func IoctlGifaddr(ifi string) (netip.Prefix, error) {
 	return netip.PrefixFrom(addr, ones), nil
 }
 
-func IoctlGifaddr2(ifi int) (netip.Prefix, error) {
-	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
-	if err != nil {
-		return netip.Prefix{}, errors.WithStack(err)
-	}
-	defer unix.Close(fd)
-
-	var ip []byte
-	if ifq, err := unix.NewIfreq(""); err != nil {
-		return netip.Prefix{}, errors.WithStack(err)
-	} else {
-		ifq.SetUint32(uint32(ifi))
-
-		err = unix.IoctlIfreq(fd, unix.SIOCGIFADDR, ifq)
-		if err != nil {
-			return netip.Prefix{}, errors.WithStack(err)
-		}
-
-		ip, err = ifq.Inet4Addr()
-		if err != nil {
-			return netip.Prefix{}, errors.WithStack(err)
-		}
-	}
-
-	var mask []byte
-	if ifq, err := unix.NewIfreq(""); err != nil {
-		return netip.Prefix{}, errors.WithStack(err)
-	} else {
-		ifq.SetUint32(uint32(ifi))
-
-		err = unix.IoctlIfreq(fd, unix.SIOCGIFNETMASK, ifq)
-		if err != nil {
-			return netip.Prefix{}, errors.WithStack(err)
-		}
-		mask, err = ifq.Inet4Addr()
-		if err != nil {
-			return netip.Prefix{}, errors.WithStack(err)
-		}
-	}
-
-	ones, bits := net.IPMask(mask).Size()
-	addr, ok := netip.AddrFromSlice(ip)
-	if !ok || bits != addr.BitLen() {
-		return netip.Prefix{}, errors.Errorf(
-			"invalid address %s or mask %s",
-			net.IP(ip).String(), net.IPMask(mask).String(),
-		)
-	}
-	return netip.PrefixFrom(addr, ones), nil
-}
-
 func IoctlGifflags(ifi string) (uint32, error) {
 	if fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0); err != nil {
 		return 0, errors.WithStack(err)
@@ -299,4 +248,15 @@ func IoctlDifflags(ifi string, flags uint32) error {
 		return nil
 	}
 	return ioctlSifflags(ifi, fd, new)
+}
+
+func LoopbackInterface() (ifi string, err error) {
+	if flags, err := IoctlGifflags("lo"); err != nil {
+		return "", err
+	} else {
+		if flags&unix.IFF_UP != 0 {
+			return "lo", nil
+		}
+	}
+	return "", errors.New("todo: for-range interfaces")
 }

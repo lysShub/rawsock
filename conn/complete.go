@@ -1,6 +1,8 @@
 package conn
 
-import "gvisor.dev/gvisor/pkg/tcpip/header"
+import (
+	"gvisor.dev/gvisor/pkg/tcpip/header"
+)
 
 func CompleteCheck(ipv4 bool, ip []byte) bool {
 	if ipv4 {

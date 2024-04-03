@@ -24,7 +24,7 @@ import (
 )
 
 func Test_Read(t *testing.T) {
-	// curl baidu.com, and async read tcp packet
+	// curl baidu.com, and async read income tcp packet
 	var (
 		dst = test.Baidu()
 	)
@@ -152,7 +152,7 @@ func Test_Write(t *testing.T) {
 		msg := "abcd"
 
 		ip := test.BuildICMP(t, test.LocIP(), dst, header.ICMPv4Echo, []byte(msg))
-		err = conn.WriteTo(ip, 0, gateway)
+		err = conn.Sendto(ip, 0, gateway)
 		require.NoError(t, err)
 
 		ipconn, err := net.ListenIP("ip4:icmp", &net.IPAddr{IP: test.LocIP().AsSlice()})
@@ -170,45 +170,94 @@ func Test_Write(t *testing.T) {
 
 func Test_ReadWrite_Loopback(t *testing.T) {
 	// write eth to loopbak, and read it next
-	var (
-		caddr = netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 19986)
-		saddr = netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 8080)
-		eth   = func() header.Ethernet {
-			ip := test.BuildRawTCP(t, caddr, saddr, []byte("hello"))
-			test.ValidIP(t, ip)
-			var pack = make(header.Ethernet, 14+len(ip))
-			pack.Encode(&header.EthernetFields{
-				SrcAddr: tcpip.LinkAddress(make([]byte, 6)),
-				DstAddr: tcpip.LinkAddress(make([]byte, 6)),
-				Type:    header.IPv4ProtocolNumber,
-			})
-			n := copy(pack[14:], ip)
-			require.Equal(t, len(ip), n)
-			return pack
-		}()
-	)
-	conn, err := Listen("eth:ip4", "lo")
-	require.NoError(t, err)
-	defer conn.Close()
 
-	_, err = conn.Write(eth)
-	require.NoError(t, err)
-	var ip = make(header.IPv4, 1536)
-	for {
-		n, _, err := conn.Recvfrom(ip[:cap(ip)], 0)
+	t.Run("lo", func(t *testing.T) {
+		var (
+			caddr = netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 19986)
+			saddr = netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 8080)
+			eth   = func() header.Ethernet {
+				ip := test.BuildRawTCP(t, caddr, saddr, []byte("hello"))
+				test.ValidIP(t, ip)
+				var pack = make(header.Ethernet, 14+len(ip))
+				pack.Encode(&header.EthernetFields{
+					SrcAddr: tcpip.LinkAddress(make([]byte, 6)),
+					DstAddr: tcpip.LinkAddress(make([]byte, 6)),
+					Type:    header.IPv4ProtocolNumber,
+				})
+				n := copy(pack[14:], ip)
+				require.Equal(t, len(ip), n)
+				return pack
+			}()
+		)
+		conn, err := Listen("eth:ip4", "lo")
 		require.NoError(t, err)
-		ip = ip[:n]
+		defer conn.Close()
 
-		if ip.Protocol() == uint8(header.TCPProtocolNumber) {
-			tcp := header.TCP(ip[ip.HeaderLength():])
-			if tcp.SourcePort() == caddr.Port() && tcp.DestinationPort() == saddr.Port() {
-				return
-			} else {
-				_, err = conn.Write(eth)
-				require.NoError(t, err)
+		_, err = conn.Write(eth)
+		require.NoError(t, err)
+		var ip = make(header.IPv4, 1536)
+		for {
+			n, _, err := conn.Recvfrom(ip[:cap(ip)], 0)
+			require.NoError(t, err)
+			ip = ip[:n]
+
+			if ip.Protocol() == uint8(header.TCPProtocolNumber) {
+				tcp := header.TCP(ip[ip.HeaderLength():])
+				if tcp.SourcePort() == caddr.Port() && tcp.DestinationPort() == saddr.Port() {
+					return
+				} else {
+					_, err = conn.Write(eth)
+					require.NoError(t, err)
+				}
 			}
 		}
-	}
+	})
+
+	t.Run("eth0", func(t *testing.T) {
+		var (
+			caddr = netip.AddrPortFrom(test.LocIP(), 19986)
+			saddr = netip.AddrPortFrom(test.LocIP(), 8080)
+			eth   = func() header.Ethernet {
+				ip := test.BuildRawTCP(t, caddr, saddr, []byte("hello"))
+				test.ValidIP(t, ip)
+				var pack = make(header.Ethernet, 14+len(ip))
+
+				i, err := net.InterfaceByName("eth0")
+				require.NoError(t, err)
+				pack.Encode(&header.EthernetFields{
+					SrcAddr: tcpip.LinkAddress(i.HardwareAddr),
+					DstAddr: tcpip.LinkAddress(i.HardwareAddr),
+					Type:    header.IPv4ProtocolNumber,
+				})
+				n := copy(pack[14:], ip)
+				require.Equal(t, len(ip), n)
+				return pack
+			}()
+		)
+		conn, err := Listen("eth:ip4", "lo")
+		require.NoError(t, err)
+		defer conn.Close()
+
+		_, err = conn.Write(eth)
+		require.NoError(t, err)
+		var ip = make(header.IPv4, 1536)
+		for {
+			n, _, err := conn.Recvfrom(ip[:cap(ip)], 0)
+			require.NoError(t, err)
+			ip = ip[:n]
+
+			if ip.Protocol() == uint8(header.TCPProtocolNumber) {
+				tcp := header.TCP(ip[ip.HeaderLength():])
+
+				if tcp.SourcePort() == caddr.Port() && tcp.DestinationPort() == saddr.Port() {
+					return
+				} else {
+					_, err = conn.Write(eth)
+					require.NoError(t, err)
+				}
+			}
+		}
+	})
 }
 
 func Test_Deadline(t *testing.T) {
@@ -322,7 +371,7 @@ func Test_Tun_Device(t *testing.T) {
 
 			for {
 
-				err = conn.WriteTo(ip, 0, dst)
+				err = conn.Sendto(ip, 0, dst)
 				require.NoError(t, err)
 
 				time.Sleep(time.Second)

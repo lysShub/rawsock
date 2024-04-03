@@ -10,6 +10,7 @@ import (
 	"github.com/google/gopacket/pcapgo"
 	"github.com/lysShub/rsocket/conn"
 	"github.com/lysShub/rsocket/packet"
+	"github.com/lysShub/rsocket/test/debug"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
@@ -94,6 +95,9 @@ func (w *pcapWrap) Read(ctx context.Context, p *packet.Packet) (err error) {
 
 	p.SetHead(oldH)
 	err = w.pcap.WriteIP(p.Data())
+	if debug.Debug() {
+		ValidIP(T(), p.Data())
+	}
 	p.SetHead(newH)
 
 	return err
@@ -104,6 +108,10 @@ func (w *pcapWrap) Write(ctx context.Context, p *packet.Packet) (err error) {
 		return err
 	}
 
+	// NOTICE: without constraint must is ip packet
+	if debug.Debug() {
+		ValidIP(T(), p.Data())
+	}
 	return w.pcap.WriteIP(p.Data())
 }
 func (w *pcapWrap) Inject(ctx context.Context, p *packet.Packet) (err error) {
