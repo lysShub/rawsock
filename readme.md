@@ -1,10 +1,46 @@
 # 备份分支：
 
-原因是TSO/GSO
-https://stackoverflow.com/questions/7995876/why-linux-server-is-responding-with-tcp-packets-larger-than-mss-requested-by-cli
+已经解决，原因是TSO/GSO 
+
+https://stackoverflow.com/questions/7995876/why-linux-server-is-responding-with-tcp-packets-larger-than-mss-requested-by-cli  
 
 
 
+
+
+
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
 
 使用net.IPConn配合bpf实现，已经实现功能，但存在一个问题：
 
