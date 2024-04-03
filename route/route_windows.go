@@ -6,7 +6,7 @@ package route
 import (
 	"net/netip"
 
-	"github.com/lysShub/rsocket/helper"
+	"github.com/lysShub/sockit/helper"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"

@@ -5,7 +5,7 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/lysShub/rsocket/packet"
+	"github.com/lysShub/sockit/packet"
 )
 
 type Listener interface {

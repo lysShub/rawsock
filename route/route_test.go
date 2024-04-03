@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/lysShub/rsocket/route"
+	"github.com/lysShub/sockit/route"
 	"github.com/stretchr/testify/require"
 )
 

@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lysShub/rsocket/conn"
-	"github.com/lysShub/rsocket/helper/ipstack"
-	"github.com/lysShub/rsocket/packet"
+	"github.com/lysShub/sockit/conn"
+	"github.com/lysShub/sockit/helper/ipstack"
+	"github.com/lysShub/sockit/packet"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"

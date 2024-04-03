@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lysShub/rsocket/packet"
+	"github.com/lysShub/sockit/packet"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"

@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/lysShub/rsocket/test/debug"
+	"github.com/lysShub/sockit/test/debug"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"

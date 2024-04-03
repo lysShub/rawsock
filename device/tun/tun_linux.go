@@ -11,7 +11,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/lysShub/rsocket/helper"
+	"github.com/lysShub/sockit/helper"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )

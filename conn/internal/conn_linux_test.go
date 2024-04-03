@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	conni "github.com/lysShub/rsocket/conn/internal"
+	conni "github.com/lysShub/sockit/conn/internal"
 
-	"github.com/lysShub/rsocket/test"
+	"github.com/lysShub/sockit/test"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 )

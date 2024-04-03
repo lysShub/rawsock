@@ -14,16 +14,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lysShub/rsocket/conn"
-	iconn "github.com/lysShub/rsocket/conn/internal"
-	itcp "github.com/lysShub/rsocket/conn/tcp/internal"
-	"github.com/lysShub/rsocket/packet"
+	"github.com/lysShub/sockit/conn"
+	iconn "github.com/lysShub/sockit/conn/internal"
+	itcp "github.com/lysShub/sockit/conn/tcp/internal"
+	"github.com/lysShub/sockit/packet"
 	"github.com/pkg/errors"
 
-	"github.com/lysShub/rsocket/helper/bpf"
-	"github.com/lysShub/rsocket/helper/ipstack"
-	"github.com/lysShub/rsocket/test"
-	"github.com/lysShub/rsocket/test/debug"
+	"github.com/lysShub/sockit/helper/bpf"
+	"github.com/lysShub/sockit/helper/ipstack"
+	"github.com/lysShub/sockit/test"
+	"github.com/lysShub/sockit/test/debug"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 

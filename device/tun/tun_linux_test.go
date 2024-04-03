@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lysShub/rsocket/device/tun"
-	"github.com/lysShub/rsocket/test"
+	"github.com/lysShub/sockit/device/tun"
+	"github.com/lysShub/sockit/test"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"

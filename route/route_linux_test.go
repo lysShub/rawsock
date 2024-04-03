@@ -5,8 +5,8 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/lysShub/rsocket/route"
-	"github.com/lysShub/rsocket/test"
+	"github.com/lysShub/sockit/route"
+	"github.com/lysShub/sockit/test"
 	"github.com/stretchr/testify/require"
 )
 

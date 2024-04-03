@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lysShub/rsocket/helper"
+	"github.com/lysShub/sockit/helper"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )

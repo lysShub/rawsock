@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lysShub/rsocket/test"
+	"github.com/lysShub/sockit/test"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"

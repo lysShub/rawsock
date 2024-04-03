@@ -3,7 +3,7 @@ package conn
 import (
 	"time"
 
-	"github.com/lysShub/rsocket/helper/ipstack"
+	"github.com/lysShub/sockit/helper/ipstack"
 )
 
 type Config struct {

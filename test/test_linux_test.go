@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lysShub/rsocket/test"
+	"github.com/lysShub/sockit/test"
 	"github.com/stretchr/testify/require"
 )
 

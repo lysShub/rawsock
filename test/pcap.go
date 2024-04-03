@@ -8,9 +8,9 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
-	"github.com/lysShub/rsocket/conn"
-	"github.com/lysShub/rsocket/packet"
-	"github.com/lysShub/rsocket/test/debug"
+	"github.com/lysShub/sockit/conn"
+	"github.com/lysShub/sockit/packet"
+	"github.com/lysShub/sockit/test/debug"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 

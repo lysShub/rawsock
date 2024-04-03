@@ -13,9 +13,9 @@ import (
 	"github.com/go-ping/ping"
 	"github.com/pkg/errors"
 
-	"github.com/lysShub/rsocket/conn"
-	"github.com/lysShub/rsocket/helper/ipstack"
-	"github.com/lysShub/rsocket/packet"
+	"github.com/lysShub/sockit/conn"
+	"github.com/lysShub/sockit/helper/ipstack"
+	"github.com/lysShub/sockit/packet"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"

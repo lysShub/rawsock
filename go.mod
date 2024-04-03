@@ -1,4 +1,4 @@
-module github.com/lysShub/rsocket
+module github.com/lysShub/sockit
 
 go 1.21
 
@@ -21,12 +21,12 @@ require (
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/mdlayher/ethernet v0.0.0-20220221185849-529eae5b6118 // indirect
 	github.com/mdlayher/socket v0.2.1 // indirect
-	golang.org/x/sync v0.1.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
 )
 
 require (
 	github.com/lysShub/wintun-go v0.0.0-20240311102803-07195f507e37
+	golang.org/x/sync v0.1.0
 	golang.zx2c4.com/wireguard/windows v0.5.3
 )
 

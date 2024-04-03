@@ -1,6 +1,6 @@
 # building...
 
-# rsocket
+# sockit
 
 **golang transport layer read/write.**
 

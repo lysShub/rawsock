@@ -11,9 +11,9 @@ import (
 
 	"bou.ke/monkey"
 	"github.com/lysShub/divert-go"
-	"github.com/lysShub/rsocket/packet"
-	"github.com/lysShub/rsocket/test"
-	"github.com/lysShub/rsocket/test/debug"
+	"github.com/lysShub/sockit/packet"
+	"github.com/lysShub/sockit/test"
+	"github.com/lysShub/sockit/test/debug"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"

@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"sync/atomic"
 
-	"github.com/lysShub/rsocket/packet"
+	"github.com/lysShub/sockit/packet"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"

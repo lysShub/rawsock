@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lysShub/rsocket/helper"
+	"github.com/lysShub/sockit/helper"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"

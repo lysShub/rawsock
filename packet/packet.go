@@ -3,7 +3,7 @@ package packet
 import (
 	"fmt"
 
-	"github.com/lysShub/rsocket/test/debug"
+	"github.com/lysShub/sockit/test/debug"
 )
 
 type Packet struct {

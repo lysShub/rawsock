@@ -7,8 +7,8 @@ import (
 	"net/netip"
 	"testing"
 
-	conni "github.com/lysShub/rsocket/conn/internal"
-	"github.com/lysShub/rsocket/test"
+	conni "github.com/lysShub/sockit/conn/internal"
+	"github.com/lysShub/sockit/test"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"

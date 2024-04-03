@@ -6,8 +6,8 @@ package tcp
 import (
 	"net/netip"
 
-	"github.com/lysShub/rsocket/conn"
-	"github.com/lysShub/rsocket/conn/tcp/raw"
+	"github.com/lysShub/sockit/conn"
+	"github.com/lysShub/sockit/conn/tcp/raw"
 )
 
 func Listen(laddr netip.AddrPort, opts ...conn.Option) (conn.Listener, error) {
