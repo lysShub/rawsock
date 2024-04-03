@@ -1,4 +1,4 @@
-package tcp
+package divert
 
 import (
 	"context"
@@ -154,7 +154,7 @@ func (l *Listener) Accept() (conn.RawConn, error) {
 		}
 
 		if newConn {
-			conn := newConnectDivert(
+			conn := newConnect(
 				l.addr, raddr, isn,
 				addr.Loopback(), int(addr.Network().IfIdx),
 				l.deleteConn,
@@ -236,7 +236,7 @@ var outboundAddr = func() *divert.Address {
 
 var _ conn.RawConn = (*Conn)(nil)
 
-func ConnectDivert(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
+func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	cfg := conn.Options(opts...)
 
 	tcp, laddr, err := iconn.BindLocal(laddr, cfg.UsedPort)
@@ -261,7 +261,7 @@ func ConnectDivert(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, err
 	}
 
 	loopback := divert.Loopback(laddr.Addr(), raddr.Addr())
-	c := newConnectDivert(
+	c := newConnect(
 		laddr, raddr, 0,
 		loopback, idx, nil,
 	)
@@ -270,8 +270,7 @@ func ConnectDivert(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, err
 	return c, c.init(cfg)
 }
 
-func newConnectDivert(laddr, raddr netip.AddrPort, isn uint32, loopback bool, ifIdx int, closeCall itcp.CloseCallback) *Conn {
-
+func newConnect(laddr, raddr netip.AddrPort, isn uint32, loopback bool, ifIdx int, closeCall itcp.CloseCallback) *Conn {
 	var conn = &Conn{
 		laddr:      laddr,
 		raddr:      raddr,

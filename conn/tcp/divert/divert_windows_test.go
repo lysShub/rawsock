@@ -1,4 +1,4 @@
-package tcp
+package divert
 
 import (
 	"context"
@@ -79,7 +79,7 @@ func Test_Connect(t *testing.T) {
 		}()
 		time.Sleep(time.Second)
 
-		raw, err := ConnectDivert(caddr, saddr)
+		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
 		us := test.NewUstack(t, caddr.Addr(), false)
 
@@ -132,7 +132,7 @@ func Test_Complete_Check(t *testing.T) {
 		go func() {
 			time.Sleep(time.Second)
 
-			raw, err := ConnectDivert(saddr, caddr)
+			raw, err := Connect(saddr, caddr)
 			require.NoError(t, err)
 			defer raw.Close()
 
@@ -142,7 +142,7 @@ func Test_Complete_Check(t *testing.T) {
 			require.NoError(t, err)
 		}()
 
-		raw, err := ConnectDivert(caddr, saddr)
+		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
 		defer raw.Close()
 
@@ -160,7 +160,7 @@ func Test_Complete_Check(t *testing.T) {
 		go func() {
 			time.Sleep(time.Second)
 
-			raw, err := ConnectDivert(saddr, caddr)
+			raw, err := Connect(saddr, caddr)
 			require.NoError(t, err)
 			defer raw.Close()
 
@@ -170,7 +170,7 @@ func Test_Complete_Check(t *testing.T) {
 			require.NoError(t, err)
 		}()
 
-		raw, err := ConnectDivert(caddr, saddr)
+		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
 		defer raw.Close()
 
