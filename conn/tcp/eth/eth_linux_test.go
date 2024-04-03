@@ -1,4 +1,7 @@
-package tcp
+//go:build linux
+// +build linux
+
+package eth
 
 import (
 	"context"
@@ -148,7 +151,7 @@ func Test_Conn(t *testing.T) {
 	time.Sleep(time.Second)
 
 	gs.Go(func() error {
-		raw, err := ConnectEth(caddr, saddr)
+		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
 
 		us := test.NewUstack(t, caddr.Addr(), false)

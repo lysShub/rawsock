@@ -14,6 +14,8 @@ import (
 
 	"github.com/lysShub/divert-go"
 	"github.com/lysShub/rsocket/conn"
+	iconn "github.com/lysShub/rsocket/conn/internal"
+	itcp "github.com/lysShub/rsocket/conn/tcp/internal"
 	"github.com/lysShub/rsocket/helper/ipstack"
 	"github.com/lysShub/rsocket/packet"
 	"github.com/lysShub/rsocket/test"
@@ -22,7 +24,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-type listenerDivert struct {
+type Listener struct {
 
 	/*
 		Structure
@@ -49,20 +51,20 @@ type listenerDivert struct {
 	// AddrPort:ISN
 	conns map[netip.AddrPort]uint32
 
-	closedConns   []closedTCPInfo
+	closedConns   []itcp.ClosedTCPInfo
 	closedConnsMu sync.RWMutex
 }
 
-var _ conn.Listener = (*listenerDivert)(nil)
+var _ conn.Listener = (*Listener)(nil)
 
-func ListenDivert(locAddr netip.AddrPort, opts ...conn.Option) (*listenerDivert, error) {
-	var l = &listenerDivert{
+func Listen(locAddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
+	var l = &Listener{
 		cfg:   conn.Options(opts...),
 		conns: make(map[netip.AddrPort]uint32, 16),
 	}
 
 	var err error
-	l.tcp, l.addr, err = conn.BindLocal(locAddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = iconn.BindLocal(locAddr, l.cfg.UsedPort)
 	if err != nil {
 		l.Close()
 		return nil, err
@@ -96,7 +98,7 @@ func Priority(p int16) conn.Option {
 	}
 }
 
-func (l *listenerDivert) Close() error {
+func (l *Listener) Close() error {
 	var err error
 	if l.tcp != 0 {
 		if e := windows.Close(l.tcp); e != nil {
@@ -111,10 +113,10 @@ func (l *listenerDivert) Close() error {
 	return err
 }
 
-func (l *listenerDivert) Addr() netip.AddrPort { return l.addr }
+func (l *Listener) Addr() netip.AddrPort { return l.addr }
 
-func (l *listenerDivert) Accept() (conn.RawConn, error) {
-	var min, max = tcpSynSizeRange(l.addr.Addr().Is4())
+func (l *Listener) Accept() (conn.RawConn, error) {
+	var min, max = itcp.TcpSynSizeRange(l.addr.Addr().Is4())
 	var addr divert.Address
 
 	var b = make([]byte, max)
@@ -158,13 +160,13 @@ func (l *listenerDivert) Accept() (conn.RawConn, error) {
 				l.deleteConn,
 			)
 
-			return conn, conn.init(l.cfg.DivertPriorty+1, l.cfg.CompleteCheck, l.cfg.IPStack)
+			return conn, conn.init(l.cfg)
 			// todo: inject P1
 		}
 	}
 }
 
-func (l *listenerDivert) purgeDeleted() {
+func (l *Listener) purgeDeleted() {
 	l.closedConnsMu.Lock()
 	defer l.closedConnsMu.Unlock()
 
@@ -183,7 +185,7 @@ func (l *listenerDivert) purgeDeleted() {
 	}
 }
 
-func (l *listenerDivert) deleteConn(raddr netip.AddrPort, isn uint32) error {
+func (l *Listener) deleteConn(raddr netip.AddrPort, isn uint32) error {
 	if l == nil {
 		return nil
 	}
@@ -192,7 +194,7 @@ func (l *listenerDivert) deleteConn(raddr netip.AddrPort, isn uint32) error {
 
 	l.closedConns = append(
 		l.closedConns,
-		closedTCPInfo{
+		itcp.ClosedTCPInfo{
 			DeleteAt: time.Now(),
 			Raddr:    raddr,
 			ISN:      isn,
@@ -208,11 +210,11 @@ func (l *listenerDivert) deleteConn(raddr netip.AddrPort, isn uint32) error {
 	return nil
 }
 
-type connDivert struct {
+type Conn struct {
 	laddr, raddr netip.AddrPort
 	isn          uint32
 	loopback     bool
-	complete     bool
+	notTrunc     bool
 
 	tcp windows.Handle
 
@@ -222,7 +224,7 @@ type connDivert struct {
 
 	ipstack *ipstack.IPStack
 
-	closeFn closeCallback
+	closeFn itcp.CloseCallback
 }
 
 var outboundAddr = func() *divert.Address {
@@ -232,12 +234,12 @@ var outboundAddr = func() *divert.Address {
 	return addr
 }()
 
-var _ conn.RawConn = (*connDivert)(nil)
+var _ conn.RawConn = (*Conn)(nil)
 
-func ConnectDivert(laddr, raddr netip.AddrPort, opts ...conn.Option) (*connDivert, error) {
+func ConnectDivert(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	cfg := conn.Options(opts...)
 
-	tcp, laddr, err := conn.BindLocal(laddr, cfg.UsedPort)
+	tcp, laddr, err := iconn.BindLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, err
 	}
@@ -265,12 +267,12 @@ func ConnectDivert(laddr, raddr netip.AddrPort, opts ...conn.Option) (*connDiver
 	)
 	c.tcp = tcp
 
-	return c, c.init(cfg.DivertPriorty, cfg.CompleteCheck, cfg.IPStack)
+	return c, c.init(cfg)
 }
 
-func newConnectDivert(laddr, raddr netip.AddrPort, isn uint32, loopback bool, ifIdx int, closeCall closeCallback) *connDivert {
+func newConnectDivert(laddr, raddr netip.AddrPort, isn uint32, loopback bool, ifIdx int, closeCall itcp.CloseCallback) *Conn {
 
-	var conn = &connDivert{
+	var conn = &Conn{
 		laddr:      laddr,
 		raddr:      raddr,
 		isn:        isn,
@@ -284,7 +286,7 @@ func newConnectDivert(laddr, raddr netip.AddrPort, isn uint32, loopback bool, if
 	return conn
 }
 
-func (c *connDivert) init(priority int16, complete bool, ipOpts *ipstack.Configs) (err error) {
+func (c *Conn) init(cfg *conn.Config) (err error) {
 	var filter string
 	if c.loopback {
 		// loopback recv as outbound packet, so raddr is localAddr laddr is remoteAddr
@@ -301,7 +303,7 @@ func (c *connDivert) init(priority int16, complete bool, ipOpts *ipstack.Configs
 	}
 
 	// todo: divert support ctxPeriod option
-	if c.raw, err = divert.Open(filter, divert.Network, priority, 0); err != nil {
+	if c.raw, err = divert.Open(filter, divert.Network, cfg.DivertPriorty, 0); err != nil {
 		c.Close()
 		return err
 	}
@@ -309,16 +311,16 @@ func (c *connDivert) init(priority int16, complete bool, ipOpts *ipstack.Configs
 	if c.ipstack, err = ipstack.New(
 		c.laddr.Addr(), c.raddr.Addr(),
 		header.TCPProtocolNumber,
-		ipOpts.Unmarshal(),
+		cfg.IPStack.Unmarshal(),
 	); err != nil {
 		return err
 	}
 
-	c.complete = complete
+	c.notTrunc = cfg.NotTrunc
 	return nil
 }
 
-func (c *connDivert) Read(ctx context.Context, p *packet.Packet) (err error) {
+func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 	b := p.Data()
 	n, err := c.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	if err != nil {
@@ -342,7 +344,7 @@ func (c *connDivert) Read(ctx context.Context, p *packet.Packet) (err error) {
 	return nil
 }
 
-func (c *connDivert) Write(ctx context.Context, p *packet.Packet) (err error) {
+func (c *Conn) Write(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
 	if debug.Debug() {
 		test.ValidIP(test.T(), p.Data())
@@ -353,7 +355,7 @@ func (c *connDivert) Write(ctx context.Context, p *packet.Packet) (err error) {
 	return err
 }
 
-func (c *connDivert) Inject(ctx context.Context, p *packet.Packet) (err error) {
+func (c *Conn) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachInbound(p)
 
 	if debug.Debug() {
@@ -364,7 +366,7 @@ func (c *connDivert) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	return err
 }
 
-func (c *connDivert) Close() error {
+func (c *Conn) Close() error {
 	var err error
 	if c.closeFn != nil {
 		if e := c.closeFn(c.raddr, c.isn); e != nil {
@@ -384,5 +386,5 @@ func (c *connDivert) Close() error {
 	return err
 }
 
-func (c *connDivert) LocalAddr() netip.AddrPort  { return c.laddr }
-func (c *connDivert) RemoteAddr() netip.AddrPort { return c.raddr }
+func (c *Conn) LocalAddr() netip.AddrPort  { return c.laddr }
+func (c *Conn) RemoteAddr() netip.AddrPort { return c.raddr }

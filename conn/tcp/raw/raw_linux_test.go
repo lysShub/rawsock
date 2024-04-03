@@ -1,4 +1,4 @@
-package tcp
+package raw
 
 import (
 	"context"
@@ -28,7 +28,7 @@ func Test_Raw_Listen(t *testing.T) {
 
 		var cnt atomic.Uint32
 		go func() {
-			l, err := ListenRaw(addr)
+			l, err := Listen(addr)
 			require.NoError(t, err)
 			defer l.Close()
 
@@ -83,7 +83,7 @@ func Test_Connect(t *testing.T) {
 		}()
 		time.Sleep(time.Second)
 
-		raw, err := ConnectRaw(caddr, saddr)
+		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
 		us := test.NewUstack(t, caddr.Addr(), false)
 
@@ -136,7 +136,7 @@ func Test_Connect(t *testing.T) {
 		}()
 		time.Sleep(time.Second)
 
-		raw, err := ConnectRaw(caddr, saddr)
+		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
 		us := test.NewUstack(t, caddr.Addr(), false)
 
@@ -167,7 +167,7 @@ func Test_Context(t *testing.T) {
 	)
 
 	const period = time.Millisecond * 100
-	tcp, err := ConnectRaw(caddr, saddr, conn.CtxPeriod(period))
+	tcp, err := Connect(caddr, saddr, conn.CtxPeriod(period))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -196,7 +196,7 @@ func Test_Complete_Check(t *testing.T) {
 		go func() {
 			time.Sleep(time.Second)
 
-			raw, err := ConnectRaw(saddr, caddr)
+			raw, err := Connect(saddr, caddr)
 			require.NoError(t, err)
 			defer raw.Close()
 
@@ -206,7 +206,7 @@ func Test_Complete_Check(t *testing.T) {
 			require.NoError(t, err)
 		}()
 
-		raw, err := ConnectRaw(caddr, saddr)
+		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
 		defer raw.Close()
 
@@ -224,7 +224,7 @@ func Test_Complete_Check(t *testing.T) {
 		go func() {
 			time.Sleep(time.Second)
 
-			raw, err := ConnectRaw(saddr, caddr)
+			raw, err := Connect(saddr, caddr)
 			require.NoError(t, err)
 			defer raw.Close()
 
@@ -234,7 +234,7 @@ func Test_Complete_Check(t *testing.T) {
 			require.NoError(t, err)
 		}()
 
-		raw, err := ConnectRaw(caddr, saddr)
+		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
 		defer raw.Close()
 

@@ -250,6 +250,42 @@ func IoctlDifflags(ifi string, flags uint32) error {
 	return ioctlSifflags(ifi, fd, new)
 }
 
+type ethtool_value struct {
+	cmd  uint32
+	data uint32
+}
+
+func IoctlTSO(ifi string, enable bool) error {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(fd)
+
+	req, err := unix.NewIfreq(ifi)
+	if err != nil {
+		return err
+	}
+
+	valptr := uintptr(unsafe.Pointer(&ethtool_value{
+		cmd:  unix.ETHTOOL_STSO,
+		data: intbool(enable),
+	}))
+	*(*uintptr)(
+		unsafe.Add(unsafe.Pointer(req), unix.IFNAMSIZ),
+	) = valptr
+
+	err = unix.IoctlIfreq(fd, unix.SIOCETHTOOL, req)
+	return err
+}
+
+func intbool(b bool) uint32 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func LoopbackInterface() (ifi string, err error) {
 	if flags, err := IoctlGifflags("lo"); err != nil {
 		return "", err

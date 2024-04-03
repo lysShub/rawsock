@@ -1,4 +1,7 @@
-package tcp
+//go:build linux
+// +build linux
+
+package eth
 
 import (
 	"context"
@@ -12,12 +15,14 @@ import (
 	"time"
 
 	"github.com/lysShub/rsocket/conn"
-	"github.com/lysShub/rsocket/eth"
+	iconn "github.com/lysShub/rsocket/conn/internal"
+	itcp "github.com/lysShub/rsocket/conn/tcp/internal"
 	"github.com/lysShub/rsocket/helper"
 	"github.com/lysShub/rsocket/helper/bpf"
 	"github.com/lysShub/rsocket/helper/ipstack"
 	"github.com/lysShub/rsocket/packet"
 	"github.com/lysShub/rsocket/route"
+	"github.com/lysShub/rsocket/socket/eth"
 	"github.com/lysShub/rsocket/test"
 	"github.com/lysShub/rsocket/test/debug"
 	"github.com/mdlayher/arp"
@@ -26,7 +31,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-type listenerEth struct {
+type Listener struct {
 	addr netip.AddrPort
 	cfg  *conn.Config
 
@@ -37,20 +42,20 @@ type listenerEth struct {
 	// AddrPort:ISN
 	conns map[netip.AddrPort]uint32
 
-	closedConns   []closedTCPInfo
+	closedConns   []itcp.ClosedTCPInfo
 	closedConnsMu sync.RWMutex
 }
 
-var _ conn.Listener = (*listenerEth)(nil)
+var _ conn.Listener = (*Listener)(nil)
 
-func ListenEth(laddr netip.AddrPort, opts ...conn.Option) (*listenerEth, error) {
-	var l = &listenerEth{
+func ListenEth(laddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
+	var l = &Listener{
 		cfg:   conn.Options(opts...),
 		conns: make(map[netip.AddrPort]uint32, 16),
 	}
 
 	var err error
-	l.tcp, l.addr, err = conn.ListenLocal(laddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = iconn.ListenLocal(laddr, l.cfg.UsedPort)
 	if err != nil {
 		l.Close()
 		return nil, err
@@ -82,7 +87,7 @@ func ListenEth(laddr netip.AddrPort, opts ...conn.Option) (*listenerEth, error) 
 	return l, nil
 }
 
-func (l *listenerEth) Close() error {
+func (l *Listener) Close() error {
 	var err error
 	if l.tcp != nil {
 		if e := l.tcp.Close(); e != nil {
@@ -97,13 +102,13 @@ func (l *listenerEth) Close() error {
 	return err
 }
 
-func (l *listenerEth) Addr() netip.AddrPort {
+func (l *Listener) Addr() netip.AddrPort {
 	return l.addr
 }
 
 // todo: not support private proto that not start with tcp SYN flag
-func (l *listenerEth) Accept() (conn.RawConn, error) {
-	var min, max = tcpSynSizeRange(l.addr.Addr().Is4())
+func (l *Listener) Accept() (conn.RawConn, error) {
+	var min, max = itcp.TcpSynSizeRange(l.addr.Addr().Is4())
 
 	var ip = make([]byte, max)
 	for {
@@ -140,16 +145,16 @@ func (l *listenerEth) Accept() (conn.RawConn, error) {
 		}
 
 		if newConn {
-			c := newConnectEth(
+			c := newConnect(
 				l.addr, raddr, isn,
-				l.deleteConn, l.cfg.CompleteCheck, l.cfg.CtxPeriod,
+				l.deleteConn, l.cfg.NotTrunc, l.cfg.CtxPeriod,
 			)
-			return c, c.init(l.cfg.IPStack)
+			return c, c.init(l.cfg)
 		}
 	}
 }
 
-func (l *listenerEth) purgeDeleted() {
+func (l *Listener) purgeDeleted() {
 	l.closedConnsMu.Lock()
 	defer l.closedConnsMu.Unlock()
 
@@ -169,7 +174,7 @@ func (l *listenerEth) purgeDeleted() {
 	}
 }
 
-func (l *listenerEth) deleteConn(raddr netip.AddrPort, isn uint32) error {
+func (l *Listener) deleteConn(raddr netip.AddrPort, isn uint32) error {
 	if l == nil {
 		return nil
 	}
@@ -178,7 +183,7 @@ func (l *listenerEth) deleteConn(raddr netip.AddrPort, isn uint32) error {
 
 	l.closedConns = append(
 		l.closedConns,
-		closedTCPInfo{
+		itcp.ClosedTCPInfo{
 			DeleteAt: time.Now(),
 			Raddr:    raddr,
 			ISN:      isn,
@@ -194,7 +199,7 @@ func (l *listenerEth) deleteConn(raddr netip.AddrPort, isn uint32) error {
 	return nil
 }
 
-type ConnEth struct {
+type Conn struct {
 	laddr, raddr netip.AddrPort
 	isn          uint32
 
@@ -207,30 +212,30 @@ type ConnEth struct {
 
 	ctxPeriod     time.Duration
 	completeCheck bool
-	closeFn       closeCallback
+	closeFn       itcp.CloseCallback
 }
 
-var _ conn.RawConn = (*ConnEth)(nil)
+var _ conn.RawConn = (*Conn)(nil)
 
-func ConnectEth(laddr, raddr netip.AddrPort, opts ...conn.Option) (*ConnEth, error) {
+func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	cfg := conn.Options(opts...)
-	var c = newConnectEth(
+	var c = newConnect(
 		laddr, raddr, 0,
-		nil, cfg.CompleteCheck, cfg.CtxPeriod,
+		nil, cfg.NotTrunc, cfg.CtxPeriod,
 	)
 
 	var err error
-	c.tcp, c.laddr, err = conn.ListenLocal(laddr, cfg.UsedPort)
+	c.tcp, c.laddr, err = iconn.ListenLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		c.Close()
 		return nil, err
 	}
 
-	return c, c.init(cfg.IPStack)
+	return c, c.init(cfg)
 }
 
-func newConnectEth(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallback, complete bool, ctxPeriod time.Duration) *ConnEth {
-	return &ConnEth{
+func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall itcp.CloseCallback, complete bool, ctxPeriod time.Duration) *Conn {
+	return &Conn{
 		laddr:         laddr,
 		raddr:         raddr,
 		isn:           isn,
@@ -240,7 +245,7 @@ func newConnectEth(laddr, raddr netip.AddrPort, isn uint32, closeCall closeCallb
 	}
 }
 
-func (c *ConnEth) init(ipcfg *ipstack.Configs) (err error) {
+func (c *Conn) init(cfg *conn.Config) (err error) {
 	defer func() {
 		if err != nil {
 			c.Close()
@@ -306,14 +311,14 @@ func (c *ConnEth) init(ipcfg *ipstack.Configs) (err error) {
 
 	if c.ipstack, err = ipstack.New(
 		c.laddr.Addr(), c.raddr.Addr(),
-		header.TCPProtocolNumber, ipcfg.Unmarshal(),
+		header.TCPProtocolNumber, cfg.IPStack.Unmarshal(),
 	); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *ConnEth) Close() (err error) {
+func (c *Conn) Close() (err error) {
 	if c.tcp != nil {
 		if e := c.tcp.Close(); e != nil {
 			err = e
@@ -332,7 +337,7 @@ func (c *ConnEth) Close() (err error) {
 	return err
 }
 
-func (c *ConnEth) Read(ctx context.Context, p *packet.Packet) (err error) {
+func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 	b := p.Data()
 	b = b[:cap(b)]
 
@@ -375,12 +380,12 @@ func (c *ConnEth) Read(ctx context.Context, p *packet.Packet) (err error) {
 	}
 	switch header.IPVersion(b) {
 	case 4:
-		if !conn.CompleteCheck(true, p.Data()) {
+		if !iconn.CompleteCheck(true, p.Data()) {
 			return errors.WithStack(io.ErrShortBuffer)
 		}
 		p.SetHead(p.Head() + int(header.IPv4(b).HeaderLength()))
 	case 6:
-		if !conn.CompleteCheck(false, p.Data()) {
+		if !iconn.CompleteCheck(false, p.Data()) {
 			return errors.WithStack(io.ErrShortBuffer)
 		}
 		p.SetHead(p.Head() + header.IPv6MinimumSize)
@@ -388,7 +393,7 @@ func (c *ConnEth) Read(ctx context.Context, p *packet.Packet) (err error) {
 	return nil
 }
 
-func (c *ConnEth) Write(ctx context.Context, p *packet.Packet) (err error) {
+func (c *Conn) Write(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
 	if debug.Debug() {
 		iphdr := header.IPv4(p.Data())
@@ -407,7 +412,7 @@ func (c *ConnEth) Write(ctx context.Context, p *packet.Packet) (err error) {
 	return err
 }
 
-func (c *ConnEth) Inject(ctx context.Context, p *packet.Packet) (err error) {
+func (c *Conn) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	return errors.New("todo: not support, need test")
 
 	// c.ipstack.AttachInbound(p)
@@ -419,6 +424,6 @@ func (c *ConnEth) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	// return err
 }
 
-func (c *ConnEth) LocalAddr() netip.AddrPort  { return c.laddr }
-func (c *ConnEth) RemoteAddr() netip.AddrPort { return c.raddr }
-func (c *ConnEth) Raw() *eth.Conn             { return c.raw }
+func (c *Conn) LocalAddr() netip.AddrPort  { return c.laddr }
+func (c *Conn) RemoteAddr() netip.AddrPort { return c.raddr }
+func (c *Conn) Raw() *eth.Conn             { return c.raw }

@@ -30,7 +30,7 @@ func Test_Listen(t *testing.T) {
 
 		var cnt atomic.Uint32
 		go func() {
-			l, err := ListenDivert(addr)
+			l, err := Listen(addr)
 			require.NoError(t, err)
 			defer l.Close()
 
