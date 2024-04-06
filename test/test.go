@@ -178,7 +178,7 @@ func BuildRawTCP(t require.TestingT, laddr, raddr netip.AddrPort, payload []byte
 
 	s, err := ipstack.New(laddr.Addr(), raddr.Addr(), header.TCPProtocolNumber)
 	require.NoError(t, err)
-	p := packet.ToPacket(s.Size(), b)
+	p := packet.Make().Append(b).SetHead(s.Size())
 	s.AttachOutbound(p)
 
 	// psoSum := s.AttachHeader(b, header.TCPProtocolNumber)
@@ -354,7 +354,7 @@ func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int
 func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw conn.RawConn) {
 	var mtu = 1536
 	go func() {
-		var ip = packet.ToPacket(0, make([]byte, mtu))
+		var ip = packet.Make(0, mtu)
 		sum := calcChecksum()
 		for {
 			ip.Sets(0, mtu)
@@ -366,8 +366,8 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw co
 
 			// recover tcp to ip packet
 			ip.SetHead(0)
-			sum(ip.Data()) // todo: TSO?
-			ValidIP(t, ip.Data())
+			sum(ip.Bytes()) // todo: TSO?
+			ValidIP(t, ip.Bytes())
 
 			// iphdr := header.IPv4(ip.Data())
 			// tcphdr := header.TCP(iphdr.Payload())
@@ -378,7 +378,7 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw co
 			// 	tcphdr.Flags(),
 			// )
 
-			us.Inject(ip.Data())
+			us.Inject(ip.Bytes())
 		}
 	}()
 
@@ -404,7 +404,7 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw co
 			// 	tcphdr.Flags(),
 			// )
 
-			err := raw.Write(ctx, packet.ToPacket(0, StripIP(ip)))
+			err := raw.Write(ctx, packet.Make().Append(StripIP(ip)))
 			require.NoError(t, err)
 		}
 	}()

@@ -320,7 +320,7 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 }
 
 func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
-	b := p.Data()
+	b := p.Bytes()
 	n, err := c.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
@@ -329,9 +329,9 @@ func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 		return err
 	}
 
-	p.SetLen(n)
+	p.SetData(n)
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Data())
+		test.ValidIP(test.T(), p.Bytes())
 	}
 
 	switch header.IPVersion(b) {
@@ -346,11 +346,11 @@ func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 func (c *Conn) Write(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Data())
+		test.ValidIP(test.T(), p.Bytes())
 	}
 
 	// todo: ctx
-	_, err = c.raw.Send(p.Data(), outboundAddr)
+	_, err = c.raw.Send(p.Bytes(), outboundAddr)
 	return err
 }
 
@@ -358,10 +358,10 @@ func (c *Conn) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachInbound(p)
 
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Data())
+		test.ValidIP(test.T(), p.Bytes())
 	}
 
-	_, err = c.raw.Send(p.Data(), c.injectAddr)
+	_, err = c.raw.Send(p.Bytes(), c.injectAddr)
 	return err
 }
 

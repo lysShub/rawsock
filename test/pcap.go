@@ -94,9 +94,9 @@ func (w *pcapWrap) Read(ctx context.Context, p *packet.Packet) (err error) {
 	newH := p.Head()
 
 	p.SetHead(oldH)
-	err = w.pcap.WriteIP(p.Data())
+	err = w.pcap.WriteIP(p.Bytes())
 	if debug.Debug() {
-		ValidIP(T(), p.Data())
+		ValidIP(T(), p.Bytes())
 	}
 	p.SetHead(newH)
 
@@ -110,9 +110,9 @@ func (w *pcapWrap) Write(ctx context.Context, p *packet.Packet) (err error) {
 
 	// NOTICE: without constraint must is ip packet
 	if debug.Debug() {
-		ValidIP(T(), p.Data())
+		ValidIP(T(), p.Bytes())
 	}
-	return w.pcap.WriteIP(p.Data())
+	return w.pcap.WriteIP(p.Bytes())
 }
 func (w *pcapWrap) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	err = w.RawConn.Inject(ctx, p)
@@ -120,5 +120,5 @@ func (w *pcapWrap) Inject(ctx context.Context, p *packet.Packet) (err error) {
 		return err
 	}
 
-	return w.pcap.WriteIP(p.Data())
+	return w.pcap.WriteIP(p.Bytes())
 }

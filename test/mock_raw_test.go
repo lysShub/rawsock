@@ -55,13 +55,13 @@ func Test_Mock_RawConn(t *testing.T) {
 			netip.AddrPortFrom(LocIP(), RandPort()),
 		)
 
-		err := rawClient.Write(context.Background(), packet.ToPacket(0, tcp))
+		err := rawClient.Write(context.Background(), packet.Make().Append(tcp))
 		require.NoError(t, err)
 
-		var b = packet.ToPacket(0, make([]byte, 128))
+		var b = packet.Make(0, 128)
 		err = rawServer.Read(context.Background(), b)
 		require.NoError(t, err)
-		require.Equal(t, []byte(tcp), b.Data())
+		require.Equal(t, []byte(tcp), b.Bytes())
 	})
 
 	t.Run("MockRaw/Write/memcpy", func(t *testing.T) {
@@ -73,15 +73,15 @@ func Test_Mock_RawConn(t *testing.T) {
 		defer rawServer.Close()
 
 		var tcphdr = []byte{21: 1}
-		err := rawClient.Write(context.Background(), packet.ToPacket(0, tcphdr))
+		err := rawClient.Write(context.Background(), packet.Make().Append(tcphdr))
 		require.NoError(t, err)
 
 		tcphdr[21] = 2
 
-		var b = packet.ToPacket(0, make([]byte, len(tcphdr)+20))
+		var b = packet.Make(0, len(tcphdr)+20)
 		err = rawServer.Read(context.Background(), b)
 		require.NoError(t, err)
-		require.Equal(t, uint8(1), b.Data()[21])
+		require.Equal(t, uint8(1), b.Bytes()[21])
 	})
 
 	t.Run("MockRaw/WriteCtx/memcpy", func(t *testing.T) {
@@ -92,20 +92,20 @@ func Test_Mock_RawConn(t *testing.T) {
 		defer rawClient.Close()
 		defer rawServer.Close()
 
-		p1 := packet.NewPacket(20, 22)
-		tcphdr := header.TCP(p1.Data())
+		p1 := packet.Make(20, 22)
+		tcphdr := header.TCP(p1.Bytes())
 		tcphdr.Encode(&header.TCPFields{DataOffset: 20})
 		tcphdr.Payload()[0] = 1
 
 		err := rawClient.Write(context.Background(), p1)
 		require.NoError(t, err)
 
-		p1.Data()[20] = 2
+		p1.Bytes()[20] = 2
 
-		p2 := packet.NewPacket(0, 64)
+		p2 := packet.Make(0, 64)
 		err = rawServer.Read(context.Background(), p2)
 		require.NoError(t, err)
-		require.Equal(t, byte(1), header.TCP(p2.Data()).Payload()[0])
+		require.Equal(t, byte(1), header.TCP(p2.Bytes()).Payload()[0])
 	})
 
 	t.Run("MockRaw/close", func(t *testing.T) {

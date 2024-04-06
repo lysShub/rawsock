@@ -1,7 +1,7 @@
 package packet
 
 import (
-	"fmt"
+	"log/slog"
 
 	"github.com/lysShub/sockit/test/debug"
 )
@@ -18,11 +18,11 @@ type Packet struct {
 	b []byte
 }
 
-func NewPacket(ns ...int) *Packet {
+func Make(ns ...int) *Packet {
 	var (
-		head int = defaulfHead
-		n    int = defaulfData
-		tail int = defaulfTail
+		head int = DefaulfHead
+		n    int = 0
+		tail int = DefaulfTail
 	)
 	if len(ns) > 0 {
 		head = ns[0]
@@ -41,133 +41,118 @@ func NewPacket(ns ...int) *Packet {
 }
 
 const (
-	defaulfHead = 32
-	defaulfData = 64
-	defaulfTail = 16
+	DefaulfHead = 32
+	DefaulfTail = 16
 )
 
-func ToPacket(off int, b []byte) *Packet {
-	return &Packet{
-		i: off,
-		b: b,
-	}
-}
-
-func (p *Packet) Data() []byte {
+func (p *Packet) Bytes() []byte {
 	return p.b[p.i:]
 }
 
 // Head head section size
 func (p *Packet) Head() int { return p.i }
 
-// Len data section size
-func (p *Packet) Len() int { return len(p.b) - p.i }
+// Data data section size
+func (p *Packet) Data() int { return len(p.b) - p.i }
 
 // Tail tail section size
 func (p *Packet) Tail() int { return cap(p.b) - len(p.b) }
 
-func (p *Packet) Cap() int {
-	return p.Len() + p.Tail()
+func (p *Packet) SetHead(head int) *Packet {
+	p.i = min(max(head, 0), len(p.b))
+	return p
+}
+
+func (p *Packet) SetData(data int) *Packet {
+	p.b = p.b[:min(p.Head()+max(data, 0), cap(p.b))]
+	return p
+}
+
+// Sets set head and data section size, equivalent to:
+func (p *Packet) Sets(head, data int) *Packet {
+	p.SetHead(head)
+	return p.SetData(data)
 }
 
 // Attach attach b ahead data-section, use head-section firstly, if head section too short,
 // will re-alloc memory.
-func (p *Packet) Attach(b []byte) {
-	delta := p.i - len(b)
-	if delta >= 0 {
-		p.i -= copy(p.b[delta:], b)
-	} else {
-		if debug.Debug() {
-			fmt.Println("packet memory alloc")
-		}
-
-		n := len(p.b) + defaulfHead - delta
-		tmp := make([]byte, n, n+max(p.Tail(), defaulfTail))
-
-		i := copy(tmp[defaulfHead:], b)
-		copy(tmp[defaulfHead+i:], p.Data())
-
-		p.b = tmp
-		p.i = defaulfHead
-	}
+func (p *Packet) Attach(b []byte) *Packet {
+	copy(p.AttachN(len(b)).Bytes(), b)
+	return p
 }
 
-// SetLen set head section size, delta-mem from data-section
-func (p *Packet) SetHead(head int) {
-	_ = p.b[head:]
-
-	p.i = head
-}
-
-// SetLen set data section size, delta-mem from tail section
-func (p *Packet) SetLen(n int) {
-	_ = p.b[:n]
-	_ = p.b[:n+p.i]
-
-	p.b = p.b[:p.i+n]
-}
-
-// Sets set head and data section size, equivalent to:
-//
-//	p.SetHead(head)
-//	p.SetLen(n)
-func (p *Packet) Sets(head, n int) {
-	_ = p.b[head:]
-	_ = p.b[:n]
-	_ = p.b[:head+n]
-
-	p.i = head
-	p.b = p.b[:head+n]
-}
-
-func (p *Packet) AllocHead(head int) bool {
-	delta := head - p.Head()
-	if delta > 0 {
-		if debug.Debug() {
-			fmt.Println("packet memory alloc")
-		}
-
-		if head < defaulfHead {
-			head = defaulfHead
-			delta = head - p.Head()
-		}
-		tmp := make([]byte, len(p.b)+delta, cap(p.b)+delta)
-		copy(tmp[head:], p.b[p.i:])
-
-		p.b = tmp
+func (p *Packet) AttachN(n int) *Packet {
+	head := p.Head() - max(n, 0)
+	if head >= 0 {
 		p.i = head
-		return true
-	}
-	return false
-}
-
-func (p *Packet) AllocTail(tail int) bool {
-	delta := tail - p.Tail()
-	if delta > 0 {
+	} else {
 		if debug.Debug() {
-			fmt.Println("packet memory alloc")
+			slog.Debug("packet memory alloc")
 		}
 
-		if tail < defaulfTail {
-			tail = defaulfTail
-		}
-		tmp := make([]byte, len(p.b), len(p.b)+tail)
-		copy(tmp, p.b)
+		size := len(p.b) - head + DefaulfHead
+		tmp := make([]byte, size, size+p.Tail())
+		copy(tmp[DefaulfHead+n:], p.Bytes())
 
 		p.b = tmp
-		return true
-	} else {
-		return false
+		p.i = DefaulfHead
 	}
+	return p
 }
 
-func (p *Packet) Copy() *Packet {
+func (p *Packet) Detach(b []byte) []byte {
+	n := copy(b, p.Bytes())
+	p.DetachN(n)
+	return b[:n]
+}
+
+func (p *Packet) DetachN(n int) *Packet {
+	p.i += min(max(n, 0), p.Data())
+	return p
+}
+
+func (p *Packet) Append(b []byte) *Packet {
+	d := p.AppendN(len(b)).Bytes()
+	copy(d[len(d)-len(b):], b)
+	return p
+}
+
+func (p *Packet) AppendN(n int) *Packet {
+	size := max(n, 0) + len(p.b)
+	if cap(p.b) >= size {
+		p.b = p.b[:size]
+	} else {
+		if debug.Debug() {
+			slog.Debug("packet memory alloc")
+		}
+
+		tmp := make([]byte, size, size+DefaulfTail)
+		copy(tmp, p.b)
+		p.b = tmp
+	}
+	return p
+}
+
+func (p *Packet) Reduce(b []byte) []byte {
+	n := p.Data()
+	d := p.ReduceN(len(b)).Bytes()
+	n = copy(b, d[len(d):n])
+	return b[:n]
+}
+
+func (p *Packet) ReduceN(n int) *Packet {
+	n = len(p.b) - max(0, n)
+	p.b = p.b[:max(n, p.i)]
+	return p
+}
+
+func (p *Packet) Clone() *Packet {
 	n := cap(p.b)
 	var c = &Packet{
-		b: make([]byte, len(p.b), n),
+		b: make([]byte, n),
 		i: p.i,
 	}
 	copy(c.b[:n], p.b[:n])
 
-	return c
+	return c.Sets(p.Head(), p.Data())
 }

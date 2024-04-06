@@ -162,14 +162,14 @@ func (r *MockRaw) Read(ctx context.Context, p *packet.Packet) (err error) {
 	}
 	// r.valid(ip, true)
 
-	b := p.Data()
+	b := p.Bytes()
 	b = b[:cap(b)]
 	n := copy(b, ip)
 	if n < len(ip) {
 		return io.ErrShortBuffer
 	}
 
-	p.SetLen(n)
+	p.SetData(n)
 	switch header.IPVersion(b) {
 	case 4:
 		iphdr := int(header.IPv4(b).HeaderLength())
@@ -196,8 +196,8 @@ func (r *MockRaw) Write(ctx context.Context, p *packet.Packet) (err error) {
 
 	r.ip.AttachOutbound(p)
 
-	tmp := make([]byte, p.Len())
-	copy(tmp, p.Data())
+	tmp := make([]byte, p.Data())
+	copy(tmp, p.Bytes())
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -208,8 +208,8 @@ func (r *MockRaw) Write(ctx context.Context, p *packet.Packet) (err error) {
 func (r *MockRaw) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	// r.valid(p.Data(), true)
 
-	var tmp = make([]byte, p.Len())
-	copy(tmp, p.Data())
+	var tmp = make([]byte, p.Data())
+	copy(tmp, p.Bytes())
 
 	defer func() {
 		if recover() != nil {

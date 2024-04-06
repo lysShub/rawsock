@@ -71,7 +71,8 @@ func Test_IP_Stack_TCP(t *testing.T) {
 			ip := make([]byte, s.Size()+len(tcp))
 			copy(ip[s.Size():], tcp)
 
-			s.AttachOutbound(packet.ToPacket(s.Size(), ip))
+			p := packet.Make().Append(ip).SetHead(s.Size())
+			s.AttachOutbound(p)
 
 			var network header.Network
 			if suit.src.Is4() {
@@ -135,7 +136,8 @@ func Test_IP_Stack_UDP(t *testing.T) {
 			ip := make([]byte, s.Size()+len(udp))
 			copy(ip[s.Size():], udp)
 
-			s.AttachOutbound(packet.ToPacket(s.Size(), ip))
+			p := packet.Make().Append(ip).SetHead(s.Size())
+			s.AttachOutbound(p)
 
 			var network header.Network
 			if suit.src.Is4() {

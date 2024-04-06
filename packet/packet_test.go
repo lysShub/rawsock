@@ -1,346 +1,466 @@
-package packet
+package packet_test
 
 import (
 	"testing"
 
+	"github.com/lysShub/sockit/packet"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_Packet_Attach(t *testing.T) {
-
-	t.Run("Attach/overflow", func(t *testing.T) {
-		p := NewPacket(2, 1)
-		p.Attach([]byte{1, 2, 3})
-
-		b := p.Data()
-		require.Equal(t, []byte{1, 2, 3, 0}, b)
-		require.Equal(t, defaulfTail, cap(b)-len(b))
-		require.Equal(t, defaulfHead, p.Head())
-	})
-
-	t.Run("Attach/overflow2", func(t *testing.T) {
-
-		data := make([]byte, 3)
-		data[2] = 55
-
-		p := ToPacket(2, data)
-		p.Attach([]byte{1, 2, 3})
-
-		b := p.Data()
-		require.Equal(t, []byte{1, 2, 3, 55}, b)
-		require.Equal(t, defaulfTail, cap(b)-len(b))
-		require.Equal(t, defaulfHead, p.Head())
-	})
-
-	t.Run("Attach/overflow3", func(t *testing.T) {
-		data := make([]byte, 3, 1024)
-		data[2] = 55
-		p := ToPacket(2, data)
-		oldTail := p.Tail()
-
-		p.Attach([]byte{1, 2, 3})
-
-		b := p.Data()
-		require.Equal(t, []byte{1, 2, 3, 55}, b)
-		require.Equal(t, max(oldTail, defaulfTail), cap(b)-len(b))
-		require.Equal(t, defaulfHead, p.Head())
-	})
-
-	t.Run("Attach/align", func(t *testing.T) {
-		p := NewPacket(2, 1)
-		p.Attach([]byte{1, 2})
-
-		b := p.Data()
-		require.Equal(t, []byte{1, 2, 0}, b)
-		require.Equal(t, defaulfTail, cap(b)-len(b))
-		require.Equal(t, 0, p.Head())
-	})
-}
-
-func Test_Packet_SetHead(t *testing.T) {
-
-	t.Run("SetHead", func(t *testing.T) {
-
-		p := NewPacket(2, 2, 2)
+func Test_SetHead(t *testing.T) {
+	t.Run("SetHead0", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
 		p.SetHead(3)
 
 		require.Equal(t, 3, p.Head())
-		require.Equal(t, 1, p.Len())
-		require.Equal(t, 1, len(p.Data()))
+		require.Equal(t, 1, p.Data())
+		require.Equal(t, 1, len(p.Bytes()))
 		require.Equal(t, 2, p.Tail())
 	})
 	t.Run("SetHead2", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
+		p := packet.Make(2, 2, 2)
 		p.SetHead(4)
 
 		require.Equal(t, 4, p.Head())
-		require.Equal(t, 0, p.Len())
-		require.Equal(t, 0, len(p.Data()))
+		require.Equal(t, 0, p.Data())
+		require.Equal(t, 0, len(p.Bytes()))
 		require.Equal(t, 2, p.Tail())
 	})
 	t.Run("SetHead3", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
+		p := packet.Make(2, 2, 2)
 		p.SetHead(0)
 
 		require.Equal(t, 0, p.Head())
-		require.Equal(t, 4, p.Len())
-		require.Equal(t, 4, len(p.Data()))
+		require.Equal(t, 4, p.Data())
+		require.Equal(t, 4, len(p.Bytes()))
 		require.Equal(t, 2, p.Tail())
 	})
 	t.Run("SetHead4", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-
-		defer func() {
-			require.NotNil(t, recover())
-		}()
-
+		p := packet.Make(2, 2, 2)
 		p.SetHead(6)
+
+		require.Equal(t, 4, p.Head())
+		require.Equal(t, 0, p.Data())
+		require.Equal(t, 0, len(p.Bytes()))
+		require.Equal(t, 2, p.Tail())
 	})
 	t.Run("SetHead5", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-
-		defer func() {
-			require.NotNil(t, recover())
-		}()
+		p := packet.Make(2, 2, 2)
 		p.SetHead(7)
+
+		require.Equal(t, 4, p.Head())
+		require.Equal(t, 0, p.Data())
+		require.Equal(t, 0, len(p.Bytes()))
+		require.Equal(t, 2, p.Tail())
 	})
 
 	t.Run("SetHead6", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-
-		defer func() {
-			require.NotNil(t, recover())
-		}()
+		p := packet.Make(2, 2, 2)
 		p.SetHead(-1)
+
+		require.Equal(t, 0, p.Head())
+		require.Equal(t, 4, p.Data())
+		require.Equal(t, 4, len(p.Bytes()))
+		require.Equal(t, 2, p.Tail())
 	})
 }
 
-func Test_Packet_SetData(t *testing.T) {
-	t.Run("SetLen", func(t *testing.T) {
+func Test_SetData(t *testing.T) {
+	t.Run("SetData0", func(t *testing.T) {
 
-		p := NewPacket(2, 2, 2)
-		p.SetLen(3)
+		p := packet.Make(2, 2, 2)
+		p.SetData(3)
 
 		require.Equal(t, 2, p.Head())
-		require.Equal(t, 3, p.Len())
-		require.Equal(t, 3, len(p.Data()))
+		require.Equal(t, 3, p.Data())
+		require.Equal(t, 3, len(p.Bytes()))
 		require.Equal(t, 1, p.Tail())
 	})
-	t.Run("SetLen2", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		p.SetLen(4)
+	t.Run("SetData2", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.SetData(4)
 
 		require.Equal(t, 2, p.Head())
-		require.Equal(t, 4, p.Len())
-		require.Equal(t, 4, len(p.Data()))
+		require.Equal(t, 4, p.Data())
+		require.Equal(t, 4, len(p.Bytes()))
 		require.Equal(t, 0, p.Tail())
 	})
-	t.Run("SetLen3", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		p.SetLen(0)
+	t.Run("SetData3", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.SetData(0)
 
 		require.Equal(t, 2, p.Head())
-		require.Equal(t, 0, p.Len())
-		require.Equal(t, 0, len(p.Data()))
+		require.Equal(t, 0, p.Data())
+		require.Equal(t, 0, len(p.Bytes()))
 		require.Equal(t, 4, p.Tail())
 	})
-	t.Run("SetLen4", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
+	t.Run("SetData4", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.SetData(5)
 
-		defer func() {
-			require.NotNil(t, recover())
-		}()
-		p.SetLen(5)
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 4, p.Data())
+		require.Equal(t, 4, len(p.Bytes()))
+		require.Equal(t, 0, p.Tail())
 	})
 
-	t.Run("SetLen5", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
+	t.Run("SetData5", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.SetData(-1)
 
-		defer func() {
-			require.NotNil(t, recover())
-		}()
-		p.SetLen(-1)
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 0, p.Data())
+		require.Equal(t, 0, len(p.Bytes()))
+		require.Equal(t, 4, p.Tail())
 	})
 }
 
-func Test_Packet_Sets(t *testing.T) {
-	t.Run("SetLen", func(t *testing.T) {
+func Test_Sets(t *testing.T) {
+	var ss [][2]int
 
-		p := NewPacket(2, 2, 2)
-		{
-			p.Sets(2, 4)
-
-			require.Equal(t, 2, p.Head())
-			require.Equal(t, 4, p.Len())
-			require.Equal(t, 4, len(p.Data()))
-			require.Equal(t, 0, p.Tail())
+	values := []int{-1, 0, 1, 2, 3, 4, 5, 6, 7}
+	for _, e1 := range values {
+		for _, e2 := range values {
+			ss = append(ss, [2]int{e1, e2})
 		}
+	}
 
-		p1 := NewPacket(2, 2, 2)
-		p1.SetHead(2)
-		p1.SetLen(4)
+	for _, e := range ss {
+		p1 := packet.Make(2, 2, 2)
+		p1.Sets(e[0], e[1])
 
-		require.Equal(t, p, p1)
+		p2 := packet.Make(2, 2, 2)
+		p2.SetHead(e[0])
+		p2.SetData(e[1])
+		require.Equal(t, p2, p1)
+	}
+}
+
+func Test_AttachN(t *testing.T) {
+	t.Run("AttachN0", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.AttachN(-1)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 2, p.Data())
+		require.Equal(t, 2, p.Tail())
 	})
 
-	t.Run("SetLen2", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		{
-			p.Sets(4, 0)
+	t.Run("AttachN1", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.AttachN(0)
 
-			require.Equal(t, 4, p.Head())
-			require.Equal(t, 0, p.Len())
-			require.Equal(t, 0, len(p.Data()))
-			require.Equal(t, 2, p.Tail())
-		}
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 2, p.Data())
+		require.Equal(t, 2, p.Tail())
+	})
+	t.Run("AttachN2", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.AttachN(1)
 
-		p1 := NewPacket(2, 2, 2)
-		p1.SetHead(4)
-		p1.SetLen(0)
-
-		require.Equal(t, p, p1)
+		require.Equal(t, 1, p.Head())
+		require.Equal(t, 3, p.Data())
+		require.Equal(t, 2, p.Tail())
 	})
 
-	t.Run("SetLen3", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		p.Sets(0, 4)
-		{
-			require.Equal(t, 0, p.Head())
-			require.Equal(t, 4, p.Len())
-			require.Equal(t, 4, len(p.Data()))
-			require.Equal(t, 2, p.Tail())
-		}
+	t.Run("AttachN3", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.AttachN(2)
 
-		p1 := NewPacket(2, 2, 2)
-		p1.SetHead(0)
-		p1.SetLen(4)
-
-		require.Equal(t, p, p1)
+		require.Equal(t, 0, p.Head())
+		require.Equal(t, 4, p.Data())
+		require.Equal(t, 2, p.Tail())
 	})
 
-	t.Run("SetLen4", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		p.Sets(0, 6)
-		{
-			require.Equal(t, 0, p.Head())
-			require.Equal(t, 6, p.Len())
-			require.Equal(t, 6, len(p.Data()))
-			require.Equal(t, 0, p.Tail())
-		}
+	t.Run("AttachN4", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.AttachN(3)
 
-		p1 := NewPacket(2, 2, 2)
-		p1.SetHead(0)
-		p1.SetLen(6)
-
-		require.Equal(t, p, p1)
-	})
-
-	t.Run("SetLen5", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-
-		defer func() {
-			require.NotNil(t, recover())
-		}()
-		p.Sets(-1, 0)
-	})
-	t.Run("SetLen6", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-
-		defer func() {
-			require.NotNil(t, recover())
-		}()
-		p.Sets(0, -1)
-	})
-	t.Run("SetLen7", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-
-		defer func() {
-			require.NotNil(t, recover())
-		}()
-		p.Sets(5, 0)
-	})
-	t.Run("SetLen8", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-
-		defer func() {
-			require.NotNil(t, recover())
-		}()
-		p.Sets(0, 7)
+		require.Equal(t, packet.DefaulfHead, p.Head())
+		require.Equal(t, 5, p.Data())
+		require.Equal(t, 2, p.Tail())
 	})
 }
 
-func Test_Packet_AllocTail(t *testing.T) {
-
-	t.Run("AllocTail", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		p.Data()[0] = 9
-
-		alloc := p.AllocTail(1)
-		require.False(t, alloc)
+func Test_Attach(t *testing.T) {
+	t.Run("Attach0", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Attach(nil)
 
 		require.Equal(t, 2, p.Head())
-		require.Equal(t, 2, p.Len())
-		require.Equal(t, 2, len(p.Data()))
-		require.Equal(t, byte(9), p.Data()[0])
+		require.Equal(t, []byte{0, 0}, p.Bytes())
 		require.Equal(t, 2, p.Tail())
 	})
 
-	t.Run("AllocTail2", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		p.Data()[0] = 9
+	t.Run("Attach1", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Attach([]byte{0x11})
 
-		alloc := p.AllocTail(3)
-		require.True(t, alloc)
+		require.Equal(t, 1, p.Head())
+		require.Equal(t, []byte{0x11, 0, 0}, p.Bytes())
+		require.Equal(t, 2, p.Tail())
+	})
 
-		require.Equal(t, 2, p.Head())
-		require.Equal(t, 2, p.Len())
-		require.Equal(t, 2, len(p.Data()))
-		require.Equal(t, byte(9), p.Data()[0])
-		require.Equal(t, defaulfTail, p.Tail())
+	t.Run("Attach2", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Bytes()[0] = 0xff
+		p.Attach([]byte{1, 2, 3})
+
+		require.Equal(t, packet.DefaulfHead, p.Head())
+		require.Equal(t, []byte{1, 2, 3, 0xff, 0}, p.Bytes())
+		require.Equal(t, 2, p.Tail())
+	})
+
+	t.Run("Attach3", func(t *testing.T) {
+		msg := "hello world"
+		p := packet.Make().Append([]byte(msg))
+		require.Equal(t, msg, string(p.Bytes()))
 	})
 }
 
-func Test_Packet_AllocHead(t *testing.T) {
-
-	t.Run("AllocHead", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		p.Data()[0] = 9
-
-		alloc := p.AllocHead(1)
-		require.False(t, alloc)
+func Test_DetachN(t *testing.T) {
+	t.Run("DetachN0", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.DetachN(-1)
 
 		require.Equal(t, 2, p.Head())
-		require.Equal(t, 2, p.Len())
-		require.Equal(t, 2, len(p.Data()))
-		require.Equal(t, byte(9), p.Data()[0])
+		require.Equal(t, 2, p.Data())
 		require.Equal(t, 2, p.Tail())
 	})
 
-	t.Run("AllocHead2", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		p.Data()[0] = 9
+	t.Run("DetachN1", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.DetachN(0)
 
-		alloc := p.AllocHead(3)
-		require.True(t, alloc)
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 2, p.Data())
+		require.Equal(t, 2, p.Tail())
+	})
+	t.Run("DetachN2", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.DetachN(1)
 
-		require.Equal(t, defaulfHead, p.Head())
-		require.Equal(t, 2, p.Len())
-		require.Equal(t, 2, len(p.Data()))
-		require.Equal(t, byte(9), p.Data()[0])
+		require.Equal(t, 3, p.Head())
+		require.Equal(t, 1, p.Data())
 		require.Equal(t, 2, p.Tail())
 	})
 
-	t.Run("AllocHead3", func(t *testing.T) {
-		p := NewPacket(2, 2, 2)
-		p.Data()[0] = 9
+	t.Run("DetachN3", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.DetachN(2)
 
-		alloc := p.AllocHead(defaulfHead + 1)
-		require.True(t, alloc)
-
-		require.Equal(t, defaulfHead+1, p.Head())
-		require.Equal(t, 2, p.Len())
-		require.Equal(t, 2, len(p.Data()))
-		require.Equal(t, byte(9), p.Data()[0])
+		require.Equal(t, 4, p.Head())
+		require.Equal(t, 0, p.Data())
 		require.Equal(t, 2, p.Tail())
 	})
+
+	t.Run("DetachN4", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.DetachN(3)
+
+		require.Equal(t, 4, p.Head())
+		require.Equal(t, 0, p.Data())
+		require.Equal(t, 2, p.Tail())
+	})
+}
+
+func Test_Detach(t *testing.T) {
+	t.Run("Detach0", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Detach(nil)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, []byte{0, 0}, p.Bytes())
+		require.Equal(t, 2, p.Tail())
+	})
+
+	t.Run("Detach1", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Detach(make([]byte, 1))
+
+		require.Equal(t, 3, p.Head())
+		require.Equal(t, 1, p.Data())
+		require.Equal(t, 2, p.Tail())
+	})
+
+	t.Run("Detach2", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Bytes()[0] = 0xff
+		d := p.Detach(make([]byte, 3))
+
+		require.Equal(t, 4, p.Head())
+		require.Equal(t, 0, p.Data())
+		require.Equal(t, []byte{0xff, 0}, d)
+		require.Equal(t, 2, p.Tail())
+	})
+}
+
+func Test_AppendN(t *testing.T) {
+	t.Run("AppendN0", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.AppendN(-1)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 2, p.Data())
+		require.Equal(t, 2, p.Tail())
+	})
+
+	t.Run("AppendN1", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.AppendN(0)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 2, p.Data())
+		require.Equal(t, 2, p.Tail())
+	})
+	t.Run("AppendN2", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.AppendN(1)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 3, p.Data())
+		require.Equal(t, 1, p.Tail())
+	})
+
+	t.Run("AppendN3", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.AppendN(2)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 4, p.Data())
+		require.Equal(t, 0, p.Tail())
+	})
+
+	t.Run("AppendN4", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.AppendN(3)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 5, p.Data())
+		require.Equal(t, packet.DefaulfTail, p.Tail())
+	})
+}
+
+func Test_Append(t *testing.T) {
+	t.Run("Append0", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Append(nil)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, []byte{0, 0}, p.Bytes())
+		require.Equal(t, 2, p.Tail())
+	})
+
+	t.Run("Append1", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Append([]byte{0x11})
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, []byte{0, 0, 0x11}, p.Bytes())
+		require.Equal(t, 1, p.Tail())
+	})
+
+	t.Run("Append2", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Bytes()[0] = 0xff
+		p.Append([]byte{1, 2, 3})
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, []byte{0xff, 0, 1, 2, 3}, p.Bytes())
+		require.Equal(t, packet.DefaulfTail, p.Tail())
+	})
+
+	t.Run("Append3", func(t *testing.T) {
+		msg := "hello world"
+		p := packet.Make().Append([]byte(msg))
+		require.Equal(t, msg, string(p.Bytes()))
+	})
+}
+
+func Test_ReduceN(t *testing.T) {
+	t.Run("ReduceN0", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.ReduceN(-1)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 2, p.Data())
+		require.Equal(t, 2, p.Tail())
+	})
+
+	t.Run("ReduceN1", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.ReduceN(0)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 2, p.Data())
+		require.Equal(t, 2, p.Tail())
+	})
+	t.Run("ReduceN2", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.ReduceN(1)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 1, p.Data())
+		require.Equal(t, 3, p.Tail())
+	})
+
+	t.Run("ReduceN3", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.ReduceN(2)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 0, p.Data())
+		require.Equal(t, 4, p.Tail())
+	})
+
+	t.Run("ReduceN4", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.ReduceN(3)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 0, p.Data())
+		require.Equal(t, 4, p.Tail())
+	})
+}
+
+func Test_Reduce(t *testing.T) {
+	t.Run("Reduce0", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Reduce(nil)
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, []byte{0, 0}, p.Bytes())
+		require.Equal(t, 2, p.Tail())
+	})
+
+	t.Run("Reduce1", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Reduce(make([]byte, 1))
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 1, p.Data())
+		require.Equal(t, 3, p.Tail())
+	})
+
+	t.Run("Reduce2", func(t *testing.T) {
+		p := packet.Make(2, 2, 2)
+		p.Bytes()[0] = 0xff
+		d := p.Reduce(make([]byte, 3))
+
+		require.Equal(t, 2, p.Head())
+		require.Equal(t, 0, p.Data())
+		require.Equal(t, []byte{0xff, 0}, d)
+		require.Equal(t, 4, p.Tail())
+	})
+}
+
+func Test_Clone(t *testing.T) {
+	p := packet.Make(2, 2, 2)
+	p.Bytes()[0], p.Bytes()[1] = 3, 4
+	p.Attach([]byte{1, 2})
+	p.Append([]byte{5, 6})
+	p.Sets(2, 2)
+
+	p1 := p.Clone()
+	require.Equal(t, p, p1)
 }

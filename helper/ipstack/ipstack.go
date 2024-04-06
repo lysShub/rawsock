@@ -108,7 +108,7 @@ func (i *IPStack) IPv4() bool {
 
 func (i *IPStack) AttachInbound(p *packet.Packet) {
 	p.Attach(i.in)
-	i.calcTransportChecksum(p.Data())
+	i.calcTransportChecksum(p.Bytes())
 }
 
 func (i *IPStack) UpdateInbound(ip header.IPv4) {
@@ -128,7 +128,7 @@ func (i *IPStack) UpdateInbound(ip header.IPv4) {
 // AttachOutbound attach a ip header for outbound address
 func (i *IPStack) AttachOutbound(p *packet.Packet) {
 	p.Attach(i.out)
-	i.calcTransportChecksum(p.Data())
+	i.calcTransportChecksum(p.Bytes())
 }
 
 // UpdateOutbound update outbound ip id field
