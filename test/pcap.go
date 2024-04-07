@@ -5,6 +5,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
@@ -14,12 +16,12 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-type pcap struct {
+type Pcap struct {
 	fh *os.File
 	w  *pcapgo.Writer
 }
 
-func NewPcap(file string) (*pcap, error) {
+func NewPcap(file string) (*Pcap, error) {
 	fh, err := os.Create(file)
 	if err != nil {
 		return nil, err
@@ -31,13 +33,45 @@ func NewPcap(file string) (*pcap, error) {
 		return nil, err
 	}
 
-	return &pcap{
+	return &Pcap{
 		fh: fh,
 		w:  w,
 	}, nil
 }
 
-func (p *pcap) Write(eth header.Ethernet) error {
+func PcapIPs[T []byte | *packet.Packet](file string, ips ...T) error {
+	if len(ips) == 0 {
+		return nil
+	}
+	var ps [][]byte
+	switch ips := any(ips).(type) {
+	case [][]byte:
+		ps = ips
+	case []*packet.Packet:
+		for _, e := range ips {
+			ps = append(ps, e.Bytes())
+		}
+	default:
+		panic("")
+	}
+
+	p, err := NewPcap(file)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	defer p.Close()
+
+	for _, e := range ps {
+		if err := p.WriteIP(e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *Pcap) Close() error { return p.fh.Close() }
+
+func (p *Pcap) Write(eth header.Ethernet) error {
 	err := p.w.WritePacket(gopacket.CaptureInfo{
 		Timestamp:      time.Now(),
 		CaptureLength:  len(eth),
@@ -47,7 +81,7 @@ func (p *pcap) Write(eth header.Ethernet) error {
 	return err
 }
 
-func (p *pcap) WriteIP(ip []byte) error {
+func (p *Pcap) WriteIP(ip []byte) error {
 	var eth []byte
 	switch header.IPVersion(ip) {
 	case 4:
@@ -66,25 +100,35 @@ func (p *pcap) WriteIP(ip []byte) error {
 	return p.Write(eth)
 }
 
-type pcapWrap struct {
+type PcapWrap struct {
 	conn.RawConn
-	pcap *pcap
+	pcap *Pcap
 }
 
-func WrapPcap(child conn.RawConn, file string) (*pcapWrap, error) {
+var _ conn.RawConn = (*PcapWrap)(nil)
+
+func WrapPcap(child conn.RawConn, file string) (*PcapWrap, error) {
 	p, err := NewPcap(file)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
-	return &pcapWrap{
+	return &PcapWrap{
 		RawConn: child,
 		pcap:    p,
 	}, nil
 }
 
-var _ conn.RawConn = (*pcapWrap)(nil)
+func (w *PcapWrap) Close() (err error) {
+	if e := w.RawConn.Close(); e != nil && err == nil {
+		err = errors.WithStack(e)
+	}
+	if e := w.pcap.Close(); e != nil && err == nil {
+		err = errors.WithStack(e)
+	}
+	return err
+}
 
-func (w *pcapWrap) Read(ctx context.Context, p *packet.Packet) (err error) {
+func (w *PcapWrap) Read(ctx context.Context, p *packet.Packet) (err error) {
 	oldH := p.Head()
 
 	err = w.RawConn.Read(ctx, p)
@@ -102,7 +146,7 @@ func (w *pcapWrap) Read(ctx context.Context, p *packet.Packet) (err error) {
 
 	return err
 }
-func (w *pcapWrap) Write(ctx context.Context, p *packet.Packet) (err error) {
+func (w *PcapWrap) Write(ctx context.Context, p *packet.Packet) (err error) {
 	err = w.RawConn.Write(ctx, p)
 	if err != nil {
 		return err
@@ -114,7 +158,7 @@ func (w *pcapWrap) Write(ctx context.Context, p *packet.Packet) (err error) {
 	}
 	return w.pcap.WriteIP(p.Bytes())
 }
-func (w *pcapWrap) Inject(ctx context.Context, p *packet.Packet) (err error) {
+func (w *PcapWrap) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	err = w.RawConn.Inject(ctx, p)
 	if err != nil {
 		return err

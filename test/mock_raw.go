@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math"
 	"math/rand"
@@ -14,6 +15,7 @@ import (
 	"github.com/lysShub/sockit/conn"
 	"github.com/lysShub/sockit/helper/ipstack"
 	"github.com/lysShub/sockit/packet"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -144,8 +146,11 @@ var _ conn.RawConn = (*MockRaw)(nil)
 func (r *MockRaw) Close() error {
 	r.closedMu.Lock()
 	defer r.closedMu.Unlock()
-	r.closed = true
-	close(r.out)
+
+	if !r.closed {
+		r.closed = true
+		close(r.out)
+	}
 	return nil
 }
 
@@ -157,22 +162,22 @@ func (r *MockRaw) Read(ctx context.Context, p *packet.Packet) (err error) {
 		return ctx.Err()
 	case ip, ok = <-r.in:
 		if !ok {
-			return io.EOF
+			return errors.WithStack(os.ErrClosed)
 		}
 	}
-	// r.valid(ip, true)
 
-	b := p.Bytes()
-	b = b[:cap(b)]
-	n := copy(b, ip)
-	if n < len(ip) {
-		return io.ErrShortBuffer
+	p.SetData(0)
+	if p.Tail() < len(ip) {
+
+		fmt.Println(p.Head(), p.Tail(), len(ip))
+
+		return errors.WithStack(io.ErrShortBuffer)
 	}
+	p.Append(ip).SetData(len(ip))
 
-	p.SetData(n)
-	switch header.IPVersion(b) {
+	switch header.IPVersion(ip) {
 	case 4:
-		iphdr := int(header.IPv4(b).HeaderLength())
+		iphdr := int(header.IPv4(ip).HeaderLength())
 		p.SetHead(p.Head() + iphdr)
 	case 6:
 		p.SetHead(p.Head() + header.IPv6MinimumSize)
@@ -182,16 +187,21 @@ func (r *MockRaw) Read(ctx context.Context, p *packet.Packet) (err error) {
 
 	return nil
 }
+
 func (r *MockRaw) Write(ctx context.Context, p *packet.Packet) (err error) {
 	r.closedMu.RLock()
 	defer r.closedMu.RUnlock()
+
+	return r.writeLocked(ctx, p)
+}
+
+func (r *MockRaw) writeLocked(ctx context.Context, p *packet.Packet) (err error) {
 	if r.closed {
-		return os.ErrClosed
+		return errors.WithStack(os.ErrClosed)
 	}
 
-	// r.valid(p.Data(), false)
 	if r.loss() {
-		return nil
+		return r.writeLocked(ctx, p)
 	}
 
 	r.ip.AttachOutbound(p)
@@ -227,61 +237,8 @@ func (r *MockRaw) LocalAddr() netip.AddrPort  { return r.local }
 func (r *MockRaw) RemoteAddr() netip.AddrPort { return r.remote }
 
 func (r *MockRaw) loss() bool {
-	if r.pl < 0.000001 {
-		return false
-	}
 	return rand.Uint32() <= uint32(float32(math.MaxUint32)*r.pl)
 }
-
-// func (r *MockRaw) valid(ip header.IPv4, inboud bool) {
-// 	r.validAddr(ip, inboud)
-// 	r.validChecksum(ip)
-// }
-
-// func (r *MockRaw) validChecksum(ip header.IPv4) {
-// 	if !r.options.validChecksum {
-// 		return
-// 	}
-
-// 	ValidIP(r.t, ip)
-// }
-
-// func (r *MockRaw) validAddr(ip header.IPv4, inbound bool) {
-// 	if !r.options.validAddr {
-// 		return
-// 	}
-// 	require.Equal(r.t, r.proto, ip.TransportProtocol())
-
-// 	var tp header.Transport
-// 	switch ip.TransportProtocol() {
-// 	case header.TCPProtocolNumber:
-// 		tp = header.TCP(ip.Payload())
-// 	case header.UDPProtocolNumber:
-// 		tp = header.UDP(ip.Payload())
-// 	case header.ICMPv4ProtocolNumber:
-// 		tp = header.ICMPv4(ip.Payload())
-// 	case header.ICMPv6ProtocolNumber:
-// 		tp = header.ICMPv6(ip.Payload())
-// 	default:
-// 		panic("")
-// 	}
-
-// 	src := netip.AddrPortFrom(
-// 		netip.AddrFrom4(ip.SourceAddress().As4()),
-// 		tp.SourcePort(),
-// 	)
-// 	dst := netip.AddrPortFrom(
-// 		netip.AddrFrom4(ip.DestinationAddress().As4()),
-// 		tp.DestinationPort(),
-// 	)
-// 	if inbound {
-// 		require.Equal(r.t, r.remote, src)
-// 		require.Equal(r.t, r.local, dst)
-// 	} else {
-// 		require.Equal(r.t, r.local, src)
-// 		require.Equal(r.t, r.remote, dst)
-// 	}
-// }
 
 type MockListener struct {
 	addr netip.AddrPort

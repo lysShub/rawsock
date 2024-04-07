@@ -381,7 +381,7 @@ func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 	switch header.IPVersion(b) {
 	case 4:
 		if !iconn.CompleteCheck(true, p.Data()) {
-			return errors.WithStack(io.ErrShortBuffer)
+			return errors.WithStack(io.ErrShortBuffer) // todo: Temporary
 		}
 		p.SetHead(p.Head() + int(header.IPv4(b).HeaderLength()))
 	case 6:

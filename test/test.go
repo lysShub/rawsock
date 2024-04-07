@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"io"
 	"math/rand"
 	"net"
@@ -115,6 +116,7 @@ func ValidIP(t require.TestingT, ip []byte) {
 		iphdr = header.IPv6(ip)
 		totalLen = int(header.IPv6(ip).PayloadLength()) + header.IPv6MinimumSize
 	default:
+		panic(hex.Dump(ip))
 	}
 	require.Equal(t, totalLen, len(ip))
 
@@ -136,7 +138,6 @@ func ValidIP(t require.TestingT, ip []byte) {
 			iphdr.DestinationAddress(),
 			uint16(len(udp)),
 		)
-
 		sum := checksum.Checksum(udp, psum)
 		require.Equal(t, uint16(0xffff), sum)
 	case header.ICMPv4ProtocolNumber:
@@ -144,7 +145,7 @@ func ValidIP(t require.TestingT, ip []byte) {
 		sum := checksum.Checksum(icmp, 0)
 		require.Equal(t, uint16(0xffff), sum)
 	default:
-		panic("")
+		panic(iphdr.TransportProtocol())
 	}
 }
 
@@ -322,13 +323,20 @@ func NewUstack(t require.TestingT, addr netip.Addr, handleLocal bool) *ustack {
 
 func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int) {
 	var buf = make(chan []byte, 64)
+	defer close(buf)
+
+	var ctx, cancel = context.WithCancelCause(context.Background())
+	defer cancel(nil)
 	go func() {
 		for i := 0; i < size; {
 			b := make([]byte, min(64, size-i))
 			s.Read(b)
 
 			n, err := conn.Write(b)
-			require.NoError(t, err)
+			if err != nil {
+				cancel(err)
+				return
+			}
 			require.Equal(t, len(b), n)
 
 			buf <- b
@@ -337,10 +345,15 @@ func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int
 	}()
 
 	for i := 0; i < size; i++ {
-		exp := <-buf
+		var exp []byte
+		select {
+		case <-ctx.Done():
+			t.Errorf(ctx.Err().Error())
+			t.FailNow()
+		case exp = <-buf:
+		}
 
 		var b = make([]byte, len(exp))
-
 		n, err := io.ReadFull(conn, b)
 		require.NoError(t, err)
 		require.Equal(t, len(exp), n)
