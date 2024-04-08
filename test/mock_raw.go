@@ -2,13 +2,11 @@ package test
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"math"
 	"math/rand"
 	"net/netip"
 	"os"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,10 +27,14 @@ type MockRaw struct {
 	local, remote netip.AddrPort
 	ip            *ipstack.IPStack
 
-	in       chan header.IPv4
-	out      chan<- header.IPv4
-	closed   bool
-	closedMu sync.RWMutex
+	in     chan pack
+	out    chan<- pack
+	closed chan struct{}
+}
+
+type pack struct {
+	ip header.IPv4
+	t  time.Time // write time
 }
 
 type options struct {
@@ -69,12 +71,11 @@ func ValidChecksum(o *options) {
 	o.validChecksum = true
 }
 
-// todo:
-// func Delay(delay time.Duration) Option {
-// 	return func(o *options) {
-// 		o.delay = delay
-// 	}
-// }
+func Delay(delay time.Duration) Option {
+	return func(o *options) {
+		o.delay = delay
+	}
+}
 
 func PacketLoss(pl float32) Option {
 	return func(o *options) {
@@ -90,8 +91,8 @@ func NewMockRaw(
 ) (client, server *MockRaw) {
 	require.True(t, clientAddr.Addr().Is4())
 
-	var a = make(chan header.IPv4, 16)
-	var b = make(chan header.IPv4, 16)
+	var a = make(chan pack, 64)
+	var b = make(chan pack, 64)
 	var err error
 
 	client = &MockRaw{
@@ -103,6 +104,7 @@ func NewMockRaw(
 		proto:   proto,
 		out:     a,
 		in:      b,
+		closed:  make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(&client.options)
@@ -123,6 +125,7 @@ func NewMockRaw(
 		proto:   proto,
 		out:     b,
 		in:      a,
+		closed:  make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(&client.options)
@@ -144,43 +147,43 @@ func NewMockRaw(
 var _ conn.RawConn = (*MockRaw)(nil)
 
 func (r *MockRaw) Close() error {
-	r.closedMu.Lock()
-	defer r.closedMu.Unlock()
-
-	if !r.closed {
-		r.closed = true
-		close(r.out)
+	select {
+	case <-r.closed:
+	default:
+		close(r.closed)
 	}
 	return nil
 }
 
-func (r *MockRaw) Read(ctx context.Context, p *packet.Packet) (err error) {
-	var ip header.IPv4
-	ok := false
+func (r *MockRaw) Read(ctx context.Context, pkt *packet.Packet) (err error) {
+	var p pack
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case ip, ok = <-r.in:
-		if !ok {
+	case <-r.closed:
+		select {
+		case p = <-r.in:
+		default:
 			return errors.WithStack(os.ErrClosed)
 		}
+	case p = <-r.in:
+	}
+	if d := time.Since(p.t); d < r.delay {
+		time.Sleep(r.delay - d)
 	}
 
-	p.SetData(0)
-	if p.Tail() < len(ip) {
-
-		fmt.Println(p.Head(), p.Tail(), len(ip))
-
+	pkt.SetData(0)
+	if pkt.Tail() < len(p.ip) {
 		return errors.WithStack(io.ErrShortBuffer)
 	}
-	p.Append(ip).SetData(len(ip))
+	pkt.Append(p.ip).SetData(len(p.ip))
 
-	switch header.IPVersion(ip) {
+	switch header.IPVersion(p.ip) {
 	case 4:
-		iphdr := int(header.IPv4(ip).HeaderLength())
-		p.SetHead(p.Head() + iphdr)
+		iphdr := int(header.IPv4(p.ip).HeaderLength())
+		pkt.SetHead(pkt.Head() + iphdr)
 	case 6:
-		p.SetHead(p.Head() + header.IPv6MinimumSize)
+		pkt.SetHead(pkt.Head() + header.IPv6MinimumSize)
 	default:
 		panic("")
 	}
@@ -188,36 +191,29 @@ func (r *MockRaw) Read(ctx context.Context, p *packet.Packet) (err error) {
 	return nil
 }
 
-func (r *MockRaw) Write(ctx context.Context, p *packet.Packet) (err error) {
-	r.closedMu.RLock()
-	defer r.closedMu.RUnlock()
-
-	return r.writeLocked(ctx, p)
-}
-
-func (r *MockRaw) writeLocked(ctx context.Context, p *packet.Packet) (err error) {
-	if r.closed {
-		return errors.WithStack(os.ErrClosed)
-	}
-
-	if r.loss() {
-		return r.writeLocked(ctx, p)
-	}
-
-	r.ip.AttachOutbound(p)
-
-	tmp := make([]byte, p.Data())
-	copy(tmp, p.Bytes())
+func (r *MockRaw) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 	select {
+	case <-r.closed:
+		return errors.WithStack(os.ErrClosed)
+	default:
+	}
+	if r.loss() {
+		return nil
+	}
+
+	r.ip.AttachOutbound(pkt)
+	tmp := append([]byte{}, pkt.Bytes()...)
+	select {
+	case <-r.closed:
+		return errors.WithStack(os.ErrClosed)
 	case <-ctx.Done():
 		return ctx.Err()
-	case r.out <- tmp:
+	case r.out <- pack{ip: tmp, t: time.Now()}:
 	}
 	return nil
 }
-func (r *MockRaw) Inject(ctx context.Context, p *packet.Packet) (err error) {
-	// r.valid(p.Data(), true)
 
+func (r *MockRaw) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	var tmp = make([]byte, p.Data())
 	copy(tmp, p.Bytes())
 
@@ -229,7 +225,7 @@ func (r *MockRaw) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case r.in <- tmp:
+	case r.in <- pack{ip: tmp, t: time.Unix(0, 0)}:
 		return nil
 	}
 }
