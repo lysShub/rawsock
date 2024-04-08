@@ -86,7 +86,7 @@ func Listen(laddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
 func (l *Listener) Close() error {
 	var err error
 	if l.tcp != nil {
-		if e := l.Close(); e != nil {
+		if e := l.tcp.Close(); e != nil {
 			err = e
 		}
 	}
