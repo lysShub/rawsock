@@ -281,8 +281,7 @@ func (c *Connn) init(cfg *conn.Config) (err error) {
 }
 
 func (c *Connn) Read(ctx context.Context, p *packet.Packet) (err error) {
-	b := p.Data()
-	b = b[:cap(b)]
+	b := p.Bytes()
 
 	var n int
 	for {
@@ -291,7 +290,7 @@ func (c *Connn) Read(ctx context.Context, p *packet.Packet) (err error) {
 			return err
 		}
 
-		n, err = c.raw.Read(b)
+		n, err = c.raw.Read(b[:cap(b)])
 		if err == nil {
 			break
 		} else if errors.Is(err, os.ErrDeadlineExceeded) {
@@ -305,18 +304,18 @@ func (c *Connn) Read(ctx context.Context, p *packet.Packet) (err error) {
 			return err
 		}
 	}
-	p.SetLen(n)
+	p.SetData(n)
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Data())
+		test.ValidIP(test.T(), p.Bytes())
 	}
 	switch header.IPVersion(b) {
 	case 4:
-		if c.complete && !iconn.CompleteCheck(true, p.Data()) {
+		if c.complete && !iconn.CompleteCheck(true, p.Bytes()) {
 			return errors.WithStack(io.ErrShortBuffer)
 		}
 		p.SetHead(p.Head() + int(header.IPv4(b).HeaderLength()))
 	case 6:
-		if c.complete && !iconn.CompleteCheck(false, p.Data()) {
+		if c.complete && !iconn.CompleteCheck(false, p.Bytes()) {
 			return errors.WithStack(io.ErrShortBuffer)
 		}
 		p.SetHead(p.Head() + header.IPv6MinimumSize)
@@ -325,16 +324,16 @@ func (c *Connn) Read(ctx context.Context, p *packet.Packet) (err error) {
 }
 
 func (c *Connn) Write(ctx context.Context, p *packet.Packet) (err error) {
-	_, err = c.raw.Write(p.Data())
+	_, err = c.raw.Write(p.Bytes())
 	return err
 }
 
 func (c *Connn) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachInbound(p)
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Data())
+		test.ValidIP(test.T(), p.Bytes())
 	}
-	_, err = c.raw.Write(p.Data())
+	_, err = c.raw.Write(p.Bytes())
 	return err
 }
 

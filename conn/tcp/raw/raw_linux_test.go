@@ -176,7 +176,7 @@ func Test_Context(t *testing.T) {
 		cancel()
 	}()
 
-	p := packet.ToPacket(0, make([]byte, 1536))
+	p := packet.Make(0, 1356)
 	s := time.Now()
 	err = tcp.Read(ctx, p)
 	require.True(t, errors.Is(err, context.Canceled))
@@ -202,7 +202,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.Write(context.Background(), packet.ToPacket(0, tcp))
+			err = raw.Write(context.Background(), packet.Make().Append(tcp))
 			require.NoError(t, err)
 		}()
 
@@ -210,7 +210,7 @@ func Test_Complete_Check(t *testing.T) {
 		require.NoError(t, err)
 		defer raw.Close()
 
-		var ip = packet.ToPacket(0, make([]byte, 39))
+		var ip = packet.Make(0, 39)
 		err = raw.Read(context.Background(), ip)
 		require.True(t, errors.Is(err, io.ErrShortBuffer))
 	})
@@ -230,7 +230,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.Write(context.Background(), packet.ToPacket(0, tcp))
+			err = raw.Write(context.Background(), packet.Make().Append(tcp))
 			require.NoError(t, err)
 		}()
 
@@ -238,7 +238,7 @@ func Test_Complete_Check(t *testing.T) {
 		require.NoError(t, err)
 		defer raw.Close()
 
-		var p = packet.ToPacket(0, make([]byte, 39))
+		var p = packet.Make(0, 39)
 		err = raw.Read(context.Background(), p)
 		require.True(t, errors.Is(err, io.ErrShortBuffer))
 	})

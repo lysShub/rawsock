@@ -338,8 +338,7 @@ func (c *Conn) Close() (err error) {
 }
 
 func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
-	b := p.Data()
-	b = b[:cap(b)]
+	b := p.Bytes()
 
 	var n int
 	for {
@@ -348,7 +347,7 @@ func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 			return err
 		}
 
-		n, _, err = c.raw.Recvfrom(b, 0)
+		n, _, err = c.raw.Recvfrom(b[:cap(b)], 0)
 		if err == nil {
 			break
 		} else if errors.Is(err, os.ErrDeadlineExceeded) {
@@ -362,10 +361,10 @@ func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 			return err
 		}
 	}
-	p.SetLen(n)
+	p.SetData(n)
 	if debug.Debug() {
 
-		iphdr := header.IPv4(p.Data())
+		iphdr := header.IPv4(p.Bytes())
 		tcphdr := header.TCP(iphdr.Payload())
 		fmt.Printf(
 			"recv %s:%d-->%s:%d	%s\n",
@@ -376,16 +375,16 @@ func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 		fmt.Println(iphdr)
 		fmt.Println()
 
-		test.ValidIP(test.T(), p.Data())
+		test.ValidIP(test.T(), p.Bytes())
 	}
 	switch header.IPVersion(b) {
 	case 4:
-		if !iconn.CompleteCheck(true, p.Data()) {
+		if !iconn.CompleteCheck(true, p.Bytes()) {
 			return errors.WithStack(io.ErrShortBuffer) // todo: Temporary
 		}
 		p.SetHead(p.Head() + int(header.IPv4(b).HeaderLength()))
 	case 6:
-		if !iconn.CompleteCheck(false, p.Data()) {
+		if !iconn.CompleteCheck(false, p.Bytes()) {
 			return errors.WithStack(io.ErrShortBuffer)
 		}
 		p.SetHead(p.Head() + header.IPv6MinimumSize)
@@ -396,7 +395,7 @@ func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 func (c *Conn) Write(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
 	if debug.Debug() {
-		iphdr := header.IPv4(p.Data())
+		iphdr := header.IPv4(p.Bytes())
 		tcphdr := header.TCP(iphdr.Payload())
 		fmt.Printf(
 			"send %s:%d-->%s:%d	%s\n",
@@ -405,10 +404,10 @@ func (c *Conn) Write(ctx context.Context, p *packet.Packet) (err error) {
 			tcphdr.Flags(),
 		)
 
-		test.ValidIP(test.T(), p.Data())
+		test.ValidIP(test.T(), p.Bytes())
 	}
 
-	err = c.raw.Sendto(p.Data(), 0, c.gateway)
+	err = c.raw.Sendto(p.Bytes(), 0, c.gateway)
 	return err
 }
 
