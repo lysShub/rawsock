@@ -197,11 +197,12 @@ func (r *MockRaw) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 		return errors.WithStack(os.ErrClosed)
 	default:
 	}
+
+	r.ip.AttachOutbound(pkt)
 	if r.loss() {
 		return nil
 	}
 
-	r.ip.AttachOutbound(pkt)
 	tmp := append([]byte{}, pkt.Bytes()...)
 	select {
 	case <-r.closed:

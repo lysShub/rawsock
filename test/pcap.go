@@ -28,7 +28,7 @@ func NewPcap(file string) (*Pcap, error) {
 	}
 
 	w := pcapgo.NewWriter(fh)
-	err = w.WriteFileHeader(65535, layers.LinkTypeEthernet)
+	err = w.WriteFileHeader(0xffff, layers.LinkTypeEthernet)
 	if err != nil {
 		return nil, err
 	}
@@ -82,21 +82,22 @@ func (p *Pcap) Write(eth header.Ethernet) error {
 }
 
 func (p *Pcap) WriteIP(ip []byte) error {
+	if debug.Debug() {
+		ValidIP(T(), ip)
+	}
+
 	var eth []byte
 	switch header.IPVersion(ip) {
 	case 4:
-		eth = append(
-			eth,
+		eth = append(eth,
 			[]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x08, 0x00}...,
 		)
-		eth = append(eth, ip...)
-
 	case 6:
-		eth = append(
-			eth,
+		eth = append(eth,
 			[]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x86, 0xdd}...,
 		)
 	}
+	eth = append(eth, ip...)
 	return p.Write(eth)
 }
 
@@ -119,7 +120,7 @@ func WrapPcap(child conn.RawConn, file string) (*PcapWrap, error) {
 }
 
 func (w *PcapWrap) Close() (err error) {
-	if e := w.RawConn.Close(); e != nil && err == nil {
+	if e := w.RawConn.Close(); e != nil {
 		err = errors.WithStack(e)
 	}
 	if e := w.pcap.Close(); e != nil && err == nil {
@@ -129,34 +130,35 @@ func (w *PcapWrap) Close() (err error) {
 }
 
 func (w *PcapWrap) Read(ctx context.Context, p *packet.Packet) (err error) {
-	oldH := p.Head()
-
+	old := p.Head()
 	err = w.RawConn.Read(ctx, p)
 	if err != nil {
 		return err
 	}
-	newH := p.Head()
+	new := p.Head()
 
-	p.SetHead(oldH)
-	err = w.pcap.WriteIP(p.Bytes())
+	p.SetHead(old)
 	if debug.Debug() {
 		ValidIP(T(), p.Bytes())
 	}
-	p.SetHead(newH)
+	err = w.pcap.WriteIP(p.Bytes())
+	p.SetHead(new)
 
 	return err
 }
-func (w *PcapWrap) Write(ctx context.Context, p *packet.Packet) (err error) {
-	err = w.RawConn.Write(ctx, p)
+
+func (w *PcapWrap) Write(ctx context.Context, pkt *packet.Packet) (err error) {
+	err = w.RawConn.Write(ctx, pkt)
 	if err != nil {
 		return err
 	}
 
+	// RawConn.Write will attach ip header.
 	// NOTICE: without constraint must is ip packet
 	if debug.Debug() {
-		ValidIP(T(), p.Bytes())
+		ValidIP(T(), pkt.Bytes())
 	}
-	return w.pcap.WriteIP(p.Bytes())
+	return w.pcap.WriteIP(pkt.Bytes())
 }
 func (w *PcapWrap) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	err = w.RawConn.Inject(ctx, p)

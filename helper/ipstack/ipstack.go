@@ -126,9 +126,9 @@ func (i *IPStack) UpdateInbound(ip header.IPv4) {
 }
 
 // AttachOutbound attach a ip header for outbound address
-func (i *IPStack) AttachOutbound(p *packet.Packet) {
-	p.Attach(i.out)
-	i.calcTransportChecksum(p.Bytes())
+func (i *IPStack) AttachOutbound(pkt *packet.Packet) {
+	pkt.Attach(i.out)
+	i.calcTransportChecksum(pkt.Bytes())
 }
 
 // UpdateOutbound update outbound ip id field
