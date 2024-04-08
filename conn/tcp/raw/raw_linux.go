@@ -316,8 +316,8 @@ func (c *Conn) close(cause error) error {
 	return *c.closeErr.Load()
 }
 
-func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
-	b := p.Bytes()
+func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
+	b := pkt.Bytes()
 
 	var n int
 	for {
@@ -340,36 +340,36 @@ func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 			return err
 		}
 	}
-	p.SetData(n)
+	pkt.SetData(n)
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Bytes())
+		test.ValidIP(test.T(), pkt.Bytes())
 	}
 	switch header.IPVersion(b) {
 	case 4:
-		if c.complete && !iconn.CompleteCheck(true, p.Bytes()) {
+		if c.complete && !iconn.CompleteCheck(true, pkt.Bytes()) {
 			return errors.WithStack(io.ErrShortBuffer)
 		}
-		p.SetHead(p.Head() + int(header.IPv4(b).HeaderLength()))
+		pkt.SetHead(pkt.Head() + int(header.IPv4(b).HeaderLength()))
 	case 6:
-		if c.complete && !iconn.CompleteCheck(false, p.Bytes()) {
+		if c.complete && !iconn.CompleteCheck(false, pkt.Bytes()) {
 			return errors.WithStack(io.ErrShortBuffer)
 		}
-		p.SetHead(p.Head() + header.IPv6MinimumSize)
+		pkt.SetHead(pkt.Head() + header.IPv6MinimumSize)
 	}
 	return nil
 }
 
-func (c *Conn) Write(ctx context.Context, p *packet.Packet) (err error) {
-	_, err = c.raw.Write(p.Bytes())
+func (c *Conn) Write(ctx context.Context, pkt *packet.Packet) (err error) {
+	_, err = c.raw.Write(pkt.Bytes())
 	return err
 }
 
-func (c *Conn) Inject(ctx context.Context, p *packet.Packet) (err error) {
-	c.ipstack.AttachInbound(p)
+func (c *Conn) Inject(ctx context.Context, pkt *packet.Packet) (err error) {
+	c.ipstack.AttachInbound(pkt)
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Bytes())
+		test.ValidIP(test.T(), pkt.Bytes())
 	}
-	_, err = c.raw.Write(p.Bytes())
+	_, err = c.raw.Write(pkt.Bytes())
 	return err
 }
 

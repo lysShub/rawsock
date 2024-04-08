@@ -11,6 +11,7 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/lysShub/sockit/conn"
+	"github.com/lysShub/sockit/helper/ipstack"
 	"github.com/lysShub/sockit/packet"
 	"github.com/lysShub/sockit/test/debug"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -103,19 +104,33 @@ func (p *Pcap) WriteIP(ip []byte) error {
 
 type PcapWrap struct {
 	conn.RawConn
-	pcap *Pcap
+	pcap    *Pcap
+	ipstack *ipstack.IPStack
 }
 
 var _ conn.RawConn = (*PcapWrap)(nil)
 
+// WrapPcap wrap a RawConn for capture packets
+// NOTICE: write packet's ip header is mocked
 func WrapPcap(child conn.RawConn, file string) (*PcapWrap, error) {
+	s, err := ipstack.New(
+		child.LocalAddr().Addr(),
+		child.RemoteAddr().Addr(),
+		header.TCPProtocolNumber, // todo: from RawConn
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	p, err := NewPcap(file)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
+
 	return &PcapWrap{
 		RawConn: child,
 		pcap:    p,
+		ipstack: s,
 	}, nil
 }
 
@@ -153,8 +168,7 @@ func (w *PcapWrap) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 		return err
 	}
 
-	// RawConn.Write will attach ip header.
-	// NOTICE: without constraint must is ip packet
+	w.ipstack.AttachOutbound(pkt)
 	if debug.Debug() {
 		ValidIP(T(), pkt.Bytes())
 	}
