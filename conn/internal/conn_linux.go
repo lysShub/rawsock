@@ -8,6 +8,8 @@ import (
 	"net/netip"
 	"unsafe"
 
+	"github.com/lysShub/sockit/helper"
+	"github.com/lysShub/sockit/route"
 	"github.com/pkg/errors"
 
 	"golang.org/x/net/bpf"
@@ -64,4 +66,22 @@ func ListenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 
 	addr := netip.MustParseAddrPort(l.Addr().String())
 	return l, netip.AddrPortFrom(laddr.Addr(), addr.Port()), nil
+}
+
+func SetTSOByAddr(addr netip.Addr, tso bool) error {
+	table, err := route.GetTable()
+	if err != nil {
+		return err
+	}
+
+	for _, e := range table {
+		if e.Addr == addr {
+			name, err := helper.IoctlGifname(int(e.Interface))
+			if err != nil {
+				return err
+			}
+			return helper.IoctlTSO(name, tso)
+		}
+	}
+	return nil
 }

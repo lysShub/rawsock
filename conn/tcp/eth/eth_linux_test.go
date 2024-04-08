@@ -34,7 +34,7 @@ func Test_Listen(t *testing.T) {
 		gs, ctx := errgroup.WithContext(ctx)
 
 		gs.Go(func() error {
-			l, err := ListenEth(addr)
+			l, err := Listen(addr)
 			require.NoError(t, err)
 			defer l.Close()
 			context.AfterFunc(ctx, func() {

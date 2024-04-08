@@ -17,11 +17,11 @@ type Entry struct {
 	// src interface index and correspond address, actually one
 	// interface can with multiple addresses, just select one.
 	Interface uint32
-	Addr      netip.Addr
+	Addr      netip.Addr // todo: Addrs
 
 	Metric uint32
 
-	raw Raw
+	raw EntryRaw
 }
 
 func (e Entry) Valid() bool {

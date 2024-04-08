@@ -14,7 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type Raw struct{}
+type EntryRaw struct{}
 
 func (e *Entry) Name() (string, error) {
 	return helper.IoctlGifname(int(e.Interface))
