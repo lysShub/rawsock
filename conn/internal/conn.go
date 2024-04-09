@@ -3,16 +3,29 @@ package conn
 import (
 	"fmt"
 
+	"github.com/lysShub/sockit/errorx"
+	"github.com/pkg/errors"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 // todo: set MSG_TRUNC flag
-func CompleteCheck(ipv4 bool, ip []byte) bool {
-	if ipv4 {
-		return header.IPv4(ip).TotalLength() == uint16(len(ip))
-	} else {
-		return header.IPv6(ip).PayloadLength()+header.IPv6MinimumSize == uint16(len(ip))
+func ValidComplete(ip []byte) (iphdrsize uint8, err error) {
+	switch header.IPVersion(ip) {
+	case 4:
+		hdr := header.IPv4(ip)
+		if tn := int(hdr.TotalLength()); tn != len(ip) {
+			return 0, errorx.ShortBuff(int(tn))
+		}
+		return hdr.HeaderLength(), nil
+	case 6:
+		hdr := header.IPv6(ip)
+		tn := int(hdr.PayloadLength()) + header.IPv6MinimumSize
+		if tn != len(ip) {
+			return 0, errorx.ShortBuff(int(tn))
+		}
+		return header.IPv6MinimumSize, nil
 	}
+	return 0, errors.New("invalid ip packet")
 }
 
 type ErrNotUsedPort int

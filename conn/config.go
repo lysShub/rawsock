@@ -9,7 +9,6 @@ import (
 type Config struct {
 	UsedPort  bool
 	CtxPeriod time.Duration
-	NotTrunc  bool
 	TSO       bool
 	IPStack   *ipstack.Configs
 
@@ -22,7 +21,6 @@ func Options(opts ...Option) *Config {
 	var cfg = &Config{
 		UsedPort:  false,
 		CtxPeriod: time.Millisecond * 100,
-		NotTrunc:  true,
 		TSO:       false,
 		IPStack:   ipstack.Options(),
 
@@ -47,13 +45,6 @@ func CtxPeriod(period time.Duration) Option {
 		if period > 0 {
 			c.CtxPeriod = period
 		}
-	}
-}
-
-// NotTrunc not recv truncated packet, default true
-func NotTrunc(v bool) Option {
-	return func(c *Config) {
-		c.NotTrunc = true
 	}
 }
 

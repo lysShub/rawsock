@@ -83,7 +83,7 @@ func (m *MockConn) Write(b []byte) (n int, err error) {
 	m.closedMu.RLock()
 	defer m.closedMu.RUnlock()
 	if m.closed {
-		return 0, os.ErrClosed
+		return 0, net.ErrClosed
 	}
 
 	tmp := make([]byte, len(b))

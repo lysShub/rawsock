@@ -12,6 +12,7 @@ import (
 
 	"bou.ke/monkey"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/lysShub/sockit/conn"
 	"github.com/lysShub/sockit/packet"
@@ -24,33 +25,51 @@ import (
 
 func Test_Raw_Listen(t *testing.T) {
 	t.Run("accept-once", func(t *testing.T) {
-		addr := netip.AddrPortFrom(test.LocIP(), test.RandPort())
+		var (
+			addr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+			cnt  atomic.Uint32
+		)
 
-		var cnt atomic.Uint32
-		go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		eg, ctx := errgroup.WithContext(ctx)
+
+		// system tcp dial will retransmit SYN packet
+		eg.Go(func() error {
+			time.Sleep(time.Second)
+			_, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr.String())
+			require.Error(t, err)
+			return nil
+		})
+		eg.Go(func() error {
+			time.Sleep(time.Second)
+			_, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr.String())
+			require.Error(t, err)
+			return nil
+		})
+
+		eg.Go(func() error {
 			l, err := Listen(addr)
 			require.NoError(t, err)
 			defer l.Close()
+			context.AfterFunc(ctx, func() { l.Close() })
 
 			for {
 				conn, err := l.Accept()
+				if errors.Is(err, net.ErrClosed) {
+					return nil
+				}
 				require.NoError(t, err)
 				conn.Close()
 				cnt.Add(1)
 			}
-		}()
-		time.Sleep(time.Second)
+		})
 
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() {
-			// system tcp dial will retransmit SYN packet
-			_, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr.String())
-			require.Error(t, err)
-		}()
-
-		time.Sleep(time.Second * 3)
+		time.Sleep(time.Second * 4)
 		cancel()
-		require.Equal(t, uint32(1), cnt.Load())
+		eg.Wait()
+
+		require.Equal(t, uint32(2), cnt.Load())
 	})
 }
 

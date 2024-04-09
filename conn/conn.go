@@ -9,6 +9,21 @@ import (
 )
 
 type Listener interface {
+
+	// Accept transport connection
+	//
+	// Example:
+	//   for {
+	//       conn, err := l.Accept()
+	//       if err != nil {
+	//           if errorx.Temporary(err) {
+	//               log.Warn(err, ...)
+	//               continue
+	//           }
+	//           return  err
+	//       }
+	//       ...
+	//   }
 	Accept() (RawConn, error)
 
 	// todo:

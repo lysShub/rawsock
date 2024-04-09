@@ -6,11 +6,9 @@ package eth
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/netip"
 	"os"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +16,7 @@ import (
 	"github.com/lysShub/sockit/conn"
 	iconn "github.com/lysShub/sockit/conn/internal"
 	itcp "github.com/lysShub/sockit/conn/tcp/internal"
+	"github.com/lysShub/sockit/errorx"
 	"github.com/lysShub/sockit/helper"
 	"github.com/lysShub/sockit/helper/bpf"
 	"github.com/lysShub/sockit/helper/ipstack"
@@ -40,12 +39,10 @@ type Listener struct {
 
 	raw *net.IPConn
 
-	// AddrPort:ISN
-	conns map[netip.AddrPort]uint32
+	conns   map[itcp.ID]struct{}
+	connsMu sync.RWMutex
 
-	closedConns   []itcp.ClosedTCPInfo
-	closedConnsMu sync.RWMutex
-	closeErr      atomic.Pointer[error]
+	closeErr atomic.Pointer[error]
 }
 
 var _ conn.Listener = (*Listener)(nil)
@@ -53,7 +50,7 @@ var _ conn.Listener = (*Listener)(nil)
 func Listen(laddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
 	var l = &Listener{
 		cfg:   conn.Options(opts...),
-		conns: make(map[netip.AddrPort]uint32, 16),
+		conns: make(map[itcp.ID]struct{}, 16),
 	}
 
 	var err error
@@ -89,20 +86,22 @@ func Listen(laddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
 }
 
 func (l *Listener) close(cause error) error {
-	if l.closeErr.CompareAndSwap(nil, &os.ErrClosed) {
-		if cause != nil {
-			l.closeErr.Store(&cause)
-		}
+	if l.closeErr.CompareAndSwap(nil, &net.ErrClosed) {
 		if l.tcp != nil {
 			if err := l.tcp.Close(); err != nil {
-				l.closeErr.Store(&cause)
+				cause = err
 			}
 		}
 		if l.raw != nil {
 			if err := l.raw.Close(); err != nil {
-				l.closeErr.Store(&cause)
+				cause = err
 			}
 		}
+
+		if cause != nil {
+			l.closeErr.Store(&cause)
+		}
+		return cause
 	}
 	return *l.closeErr.Load()
 }
@@ -113,96 +112,62 @@ func (l *Listener) Addr() netip.AddrPort {
 
 // todo: not support private proto that not start with tcp SYN flag
 func (l *Listener) Accept() (conn.RawConn, error) {
-	var min, max = itcp.TcpSynSizeRange(l.addr.Addr().Is4())
+	var min, max = itcp.SizeRange(l.addr.Addr().Is4())
 
 	var ip = make([]byte, max)
 	for {
 		n, err := l.raw.Read(ip[:max])
 		if err != nil {
-			return nil, err
+			return nil, l.close(err)
 		} else if n < min {
 			return nil, fmt.Errorf("recved invalid ip packet, bytes %d", n)
 		}
-		l.purgeDeleted()
 
-		var raddr netip.AddrPort
-		var isn uint32
+		var id = itcp.ID{Local: l.addr}
 		switch header.IPVersion(ip) {
 		case 4:
 			iphdr := header.IPv4(ip[:n])
 			tcphdr := header.TCP(iphdr.Payload())
-			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
-			isn = tcphdr.SequenceNumber()
+			id.Remote = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
+			id.ISN = tcphdr.SequenceNumber()
 		case 6:
 			iphdr := header.IPv6(ip[:n])
 			tcphdr := header.TCP(iphdr.Payload())
-			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
-			isn = tcphdr.SequenceNumber()
+			id.Remote = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
+			id.ISN = tcphdr.SequenceNumber()
 		default:
 			continue
 		}
 
-		newConn := false
-		old, ok := l.conns[raddr]
-		if !ok || (ok && old != isn) {
-			l.conns[raddr] = isn
-			newConn = true
-		}
+		l.connsMu.RLock()
+		_, has := l.conns[id]
+		l.connsMu.RLock()
 
-		if newConn {
+		if !has {
+			l.connsMu.Lock()
+			l.conns[id] = struct{}{}
+			l.connsMu.Unlock()
+
 			c := newConnect(
-				l.addr, raddr, isn,
-				l.deleteConn, l.cfg.NotTrunc, l.cfg.CtxPeriod,
+				id, l.deleteConn, l.cfg.CtxPeriod,
 			)
 			if err := c.init(l.cfg); err != nil {
-				return nil, c.close(err)
+				return nil, errorx.WrapTemp(c.close(err))
 			}
 			return c, nil
 		}
 	}
 }
 
-func (l *Listener) purgeDeleted() {
-	l.closedConnsMu.Lock()
-	defer l.closedConnsMu.Unlock()
-
-	for i := len(l.closedConns) - 1; i >= 0; i-- {
-		c := l.closedConns[i]
-
-		if time.Since(c.DeleteAt) > time.Minute {
-			isn, ok := l.conns[c.Raddr]
-			if ok && isn == c.ISN {
-				delete(l.conns, c.Raddr)
-			}
-
-			l.closedConns = l.closedConns[:i-1]
-		} else {
-			break
-		}
-	}
-}
-
-func (l *Listener) deleteConn(raddr netip.AddrPort, isn uint32) error {
+func (l *Listener) deleteConn(id itcp.ID) error {
 	if l == nil {
 		return nil
 	}
-	l.closedConnsMu.Lock()
-	defer l.closedConnsMu.Unlock()
+	time.AfterFunc(time.Minute, func() {
+		l.connsMu.Lock()
+		defer l.connsMu.Unlock()
 
-	l.closedConns = append(
-		l.closedConns,
-		itcp.ClosedTCPInfo{
-			DeleteAt: time.Now(),
-			Raddr:    raddr,
-			ISN:      isn,
-		},
-	)
-
-	// desc
-	sort.Slice(l.closedConns, func(i, j int) bool {
-		it := l.closedConns[i].DeleteAt
-		jt := l.closedConns[i].DeleteAt
-		return it.After(jt)
+		delete(l.conns, id)
 	})
 	return nil
 }
@@ -212,8 +177,7 @@ func (l *Listener) Close() error {
 }
 
 type Conn struct {
-	laddr, raddr netip.AddrPort
-	isn          uint32
+	itcp.ID
 
 	// todo: set buff 0
 	tcp *net.TCPListener
@@ -222,9 +186,8 @@ type Conn struct {
 	ipstack *ipstack.IPStack
 	gateway net.HardwareAddr
 
-	ctxPeriod     time.Duration
-	completeCheck bool
-	closeFn       itcp.CloseCallback
+	ctxPeriod time.Duration
+	closeFn   itcp.CloseCallback
 
 	closeErr atomic.Pointer[error]
 }
@@ -234,16 +197,16 @@ var _ conn.RawConn = (*Conn)(nil)
 func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	cfg := conn.Options(opts...)
 	var c = newConnect(
-		laddr, raddr, 0,
-		nil, cfg.NotTrunc, cfg.CtxPeriod,
+		itcp.ID{Local: laddr, Remote: raddr, ISN: 0},
+		nil, cfg.CtxPeriod,
 	)
 
 	var err error
-	c.tcp, c.laddr, err = iconn.ListenLocal(laddr, cfg.UsedPort)
+	c.tcp, c.Local, err = iconn.ListenLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, c.close(err)
 	}
-	if err := iconn.SetTSOByAddr(c.laddr.Addr(), cfg.TSO); err != nil {
+	if err := iconn.SetTSOByAddr(c.Local.Addr(), cfg.TSO); err != nil {
 		return nil, c.close(err)
 	}
 
@@ -253,19 +216,16 @@ func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	return c, nil
 }
 
-func newConnect(laddr, raddr netip.AddrPort, isn uint32, closeCall itcp.CloseCallback, complete bool, ctxPeriod time.Duration) *Conn {
+func newConnect(id itcp.ID, closeCall itcp.CloseCallback, ctxPeriod time.Duration) *Conn {
 	return &Conn{
-		laddr:         laddr,
-		raddr:         raddr,
-		isn:           isn,
-		closeFn:       closeCall,
-		completeCheck: complete,
-		ctxPeriod:     ctxPeriod,
+		ID:        id,
+		closeFn:   closeCall,
+		ctxPeriod: ctxPeriod,
 	}
 }
 
 func (c *Conn) init(cfg *conn.Config) (err error) {
-	entry, err := route.GetBestInterface(c.raddr.Addr())
+	entry, err := route.GetBestInterface(c.Remote.Addr())
 	if err != nil {
 		return err
 	}
@@ -287,7 +247,7 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 		c.gateway = net.HardwareAddr(make([]byte, 6))
 	} else {
 		if debug.Debug() {
-			require.Equal(test.T(), c.laddr.Addr(), entry.Addr)
+			require.Equal(test.T(), c.Local.Addr(), entry.Addr)
 		}
 		ifi, err = net.InterfaceByIndex(int(entry.Interface))
 		if err != nil {
@@ -317,13 +277,13 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 	}
 	if err := bpf.SetRawBPF(
 		c.raw.SyscallConn(),
-		bpf.FilterEndpoint(header.TCPProtocolNumber, c.raddr, c.laddr),
+		bpf.FilterEndpoint(header.TCPProtocolNumber, c.Remote, c.Local),
 	); err != nil {
 		return err
 	}
 
 	if c.ipstack, err = ipstack.New(
-		c.laddr.Addr(), c.raddr.Addr(),
+		c.Local.Addr(), c.Remote.Addr(),
 		header.TCPProtocolNumber, cfg.IPStack.Unmarshal(),
 	); err != nil {
 		return err
@@ -332,25 +292,27 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 }
 
 func (c *Conn) close(cause error) error {
-	if c.closeErr.CompareAndSwap(nil, &os.ErrClosed) {
-		if cause != nil {
-			c.closeErr.Store(&cause)
-		}
+	if c.closeErr.CompareAndSwap(nil, &net.ErrClosed) {
 		if c.tcp != nil {
 			if err := c.tcp.Close(); err != nil {
-				c.closeErr.Store(&err)
+				cause = err
 			}
 		}
 		if c.raw != nil {
 			if err := c.raw.Close(); err != nil {
-				c.closeErr.Store(&err)
+				cause = err
 			}
 		}
 		if c.closeFn != nil {
-			if err := c.closeFn(c.raddr, c.isn); err != nil {
-				c.closeErr.Store(&err)
+			if err := c.closeFn(c.ID); err != nil {
+				cause = err
 			}
 		}
+
+		if cause != nil {
+			c.closeErr.Store(&cause)
+		}
+		return cause
 	}
 	return *c.closeErr.Load()
 }
@@ -380,21 +342,16 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 		}
 	}
 	pkt.SetData(n)
+
 	if debug.Debug() {
 		test.ValidIP(test.T(), pkt.Bytes())
 	}
-	switch header.IPVersion(b) {
-	case 4:
-		if !iconn.CompleteCheck(true, pkt.Bytes()) {
-			return errors.WithStack(io.ErrShortBuffer) // todo: Temporary
-		}
-		pkt.SetHead(pkt.Head() + int(header.IPv4(b).HeaderLength()))
-	case 6:
-		if !iconn.CompleteCheck(false, pkt.Bytes()) {
-			return errors.WithStack(io.ErrShortBuffer)
-		}
-		pkt.SetHead(pkt.Head() + header.IPv6MinimumSize)
+
+	hdr, err := iconn.ValidComplete(pkt.Bytes())
+	if err != nil {
+		return err
 	}
+	pkt.SetHead(pkt.Head() + int(hdr))
 	return nil
 }
 
@@ -424,6 +381,6 @@ func (c *Conn) Close() (err error) {
 	return c.close(nil)
 }
 
-func (c *Conn) LocalAddr() netip.AddrPort  { return c.laddr }
-func (c *Conn) RemoteAddr() netip.AddrPort { return c.raddr }
+func (c *Conn) LocalAddr() netip.AddrPort  { return c.Local }
+func (c *Conn) RemoteAddr() netip.AddrPort { return c.Remote }
 func (c *Conn) Raw() *eth.Conn             { return c.raw }

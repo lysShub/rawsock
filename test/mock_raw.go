@@ -2,15 +2,15 @@ package test
 
 import (
 	"context"
-	"io"
 	"math"
 	"math/rand"
+	"net"
 	"net/netip"
-	"os"
 	"sync/atomic"
 	"time"
 
 	"github.com/lysShub/sockit/conn"
+	"github.com/lysShub/sockit/errorx"
 	"github.com/lysShub/sockit/helper/ipstack"
 	"github.com/lysShub/sockit/packet"
 	"github.com/pkg/errors"
@@ -164,7 +164,7 @@ func (r *MockRaw) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 		select {
 		case p = <-r.in:
 		default:
-			return errors.WithStack(os.ErrClosed)
+			return errors.WithStack(net.ErrClosed)
 		}
 	case p = <-r.in:
 	}
@@ -174,7 +174,7 @@ func (r *MockRaw) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 
 	pkt.SetData(0)
 	if pkt.Tail() < len(p.ip) {
-		return errors.WithStack(io.ErrShortBuffer)
+		return errorx.ShortBuff(len(p.ip))
 	}
 	pkt.Append(p.ip).SetData(len(p.ip))
 
@@ -194,7 +194,7 @@ func (r *MockRaw) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 func (r *MockRaw) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 	select {
 	case <-r.closed:
-		return errors.WithStack(os.ErrClosed)
+		return errors.WithStack(net.ErrClosed)
 	default:
 	}
 
@@ -206,7 +206,7 @@ func (r *MockRaw) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 	tmp := append([]byte{}, pkt.Bytes()...)
 	select {
 	case <-r.closed:
-		return errors.WithStack(os.ErrClosed)
+		return errors.WithStack(net.ErrClosed)
 	case <-ctx.Done():
 		return ctx.Err()
 	case r.out <- pack{ip: tmp, t: time.Now()}:
@@ -220,7 +220,7 @@ func (r *MockRaw) Inject(ctx context.Context, p *packet.Packet) (err error) {
 
 	defer func() {
 		if recover() != nil {
-			err = os.ErrClosed
+			err = net.ErrClosed
 		}
 	}()
 	select {
@@ -265,7 +265,7 @@ func NewMockListener(t require.TestingT, raws ...conn.RawConn) *MockListener {
 func (l *MockListener) Accept() (conn.RawConn, error) {
 	raw, ok := <-l.raws
 	if !ok || l.closed.Load() {
-		return nil, os.ErrClosed
+		return nil, net.ErrClosed
 	}
 	return raw, nil
 }

@@ -2,20 +2,19 @@ package tcp
 
 import (
 	"net/netip"
-	"time"
 
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-type CloseCallback func(raddr netip.AddrPort, isn uint32) error
-
-type ClosedTCPInfo struct {
-	DeleteAt time.Time
-	Raddr    netip.AddrPort
-	ISN      uint32
+type ID struct {
+	Local  netip.AddrPort
+	Remote netip.AddrPort // remote address
+	ISN    uint32
 }
 
-func TcpSynSizeRange(ipv4 bool) (min, max int) {
+type CloseCallback func(ID) error
+
+func SizeRange(ipv4 bool) (min, max int) {
 	min, max = header.TCPMinimumSize, header.TCPHeaderMaximumSize
 	if ipv4 {
 		min += header.IPv4MinimumSize

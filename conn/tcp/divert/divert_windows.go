@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"io"
+	"net"
 	"net/netip"
-	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -16,6 +16,7 @@ import (
 	"github.com/lysShub/sockit/conn"
 	iconn "github.com/lysShub/sockit/conn/internal"
 	itcp "github.com/lysShub/sockit/conn/tcp/internal"
+	"github.com/lysShub/sockit/errorx"
 	"github.com/lysShub/sockit/helper/ipstack"
 	"github.com/lysShub/sockit/packet"
 	"github.com/lysShub/sockit/test"
@@ -48,11 +49,10 @@ type Listener struct {
 
 	// priority int16
 
-	// AddrPort:ISN
-	conns map[netip.AddrPort]uint32
+	conns   map[itcp.ID]struct{}
+	connsMu sync.RWMutex
 
-	closedConns   []itcp.ClosedTCPInfo
-	closedConnsMu sync.RWMutex
+	closeErr atomic.Pointer[error]
 }
 
 var _ conn.Listener = (*Listener)(nil)
@@ -60,7 +60,7 @@ var _ conn.Listener = (*Listener)(nil)
 func Listen(locAddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
 	var l = &Listener{
 		cfg:   conn.Options(opts...),
-		conns: make(map[netip.AddrPort]uint32, 16),
+		conns: make(map[itcp.ID]struct{}, 16),
 	}
 
 	var err error
@@ -98,64 +98,68 @@ func Priority(p int16) conn.Option {
 	}
 }
 
-func (l *Listener) Close() error {
-	var err error
-	if l.tcp != 0 {
-		if e := windows.Close(l.tcp); e != nil {
-			err = e
+func (l *Listener) close(cause error) error {
+	if l.closeErr.CompareAndSwap(nil, &net.ErrClosed) {
+		if l.tcp != 0 {
+			if err := windows.Close(l.tcp); err != nil {
+				cause = err
+			}
 		}
-	}
-	if l.raw != nil {
-		if e := l.raw.Close(); err != nil {
-			err = e
+		if l.raw != nil {
+			if err := l.raw.Close(); err != nil {
+				cause = err
+			}
 		}
+
+		if cause != nil {
+			l.closeErr.Store(&cause)
+		}
+		return cause
 	}
-	return err
+	return *l.closeErr.Load()
 }
 
 func (l *Listener) Addr() netip.AddrPort { return l.addr }
 
 func (l *Listener) Accept() (conn.RawConn, error) {
-	var min, max = itcp.TcpSynSizeRange(l.addr.Addr().Is4())
+	var min, max = itcp.SizeRange(l.addr.Addr().Is4())
 	var addr divert.Address
 
 	var b = make([]byte, max)
 	for {
 		n, err := l.raw.Recv(b[:max], &addr)
 		if err != nil {
-			return nil, err
+			return nil, l.close(err)
 		} else if n < min {
-			return nil, fmt.Errorf("recved invalid ip packet, bytes %d", n)
+			return nil, errors.Errorf("recved invalid ip packet, bytes %d", n)
 		}
-		l.purgeDeleted()
 
-		var raddr netip.AddrPort
-		var isn uint32
+		var id = itcp.ID{Local: l.addr}
 		switch header.IPVersion(b) {
 		case 4:
 			iphdr := header.IPv4(b[:n])
 			tcphdr := header.TCP(iphdr.Payload())
-			raddr = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
-			isn = tcphdr.SequenceNumber()
+			id.Remote = netip.AddrPortFrom(netip.AddrFrom4(iphdr.SourceAddress().As4()), tcphdr.SourcePort())
+			id.ISN = tcphdr.SequenceNumber()
 		case 6:
 			iphdr := header.IPv6(b[:n])
 			tcphdr := header.TCP(iphdr.Payload())
-			raddr = netip.AddrPortFrom(netip.AddrFrom16(iphdr.SourceAddress().As16()), tcphdr.SourcePort())
-			isn = tcphdr.SequenceNumber()
+			id.Remote = netip.AddrPortFrom(netip.AddrFrom16(iphdr.SourceAddress().As16()), tcphdr.SourcePort())
+			id.ISN = tcphdr.SequenceNumber()
 		default:
 			return nil, fmt.Errorf("recv invalid ip packet: %s", hex.Dump(b[:n]))
 		}
 
-		newConn := false
-		old, ok := l.conns[raddr]
-		if !ok || (ok && old != isn) {
-			l.conns[raddr] = isn
-			newConn = true
-		}
+		l.connsMu.RLock()
+		_, has := l.conns[id]
+		l.connsMu.RUnlock()
+		if !has {
+			l.connsMu.Lock()
+			l.conns[id] = struct{}{}
+			l.connsMu.RLock()
 
-		if newConn {
 			conn := newConnect(
-				l.addr, raddr, isn,
+				id,
 				addr.Loopback(), int(addr.Network().IfIdx),
 				l.deleteConn,
 			)
@@ -166,55 +170,24 @@ func (l *Listener) Accept() (conn.RawConn, error) {
 	}
 }
 
-func (l *Listener) purgeDeleted() {
-	l.closedConnsMu.Lock()
-	defer l.closedConnsMu.Unlock()
-
-	for i := len(l.closedConns) - 1; i >= 0; i-- {
-		c := l.closedConns[i]
-		if time.Since(c.DeleteAt) > time.Minute {
-			isn, ok := l.conns[c.Raddr]
-			if ok && isn == c.ISN {
-				delete(l.conns, c.Raddr)
-			}
-
-			l.closedConns = l.closedConns[:i]
-		} else {
-			break
-		}
-	}
-}
-
-func (l *Listener) deleteConn(raddr netip.AddrPort, isn uint32) error {
+func (l *Listener) deleteConn(id itcp.ID) error {
 	if l == nil {
 		return nil
 	}
-	l.closedConnsMu.Lock()
-	defer l.closedConnsMu.Unlock()
+	time.AfterFunc(time.Minute, func() {
+		l.connsMu.Lock()
+		defer l.connsMu.Unlock()
 
-	l.closedConns = append(
-		l.closedConns,
-		itcp.ClosedTCPInfo{
-			DeleteAt: time.Now(),
-			Raddr:    raddr,
-			ISN:      isn,
-		},
-	)
-
-	// desc
-	sort.Slice(l.closedConns, func(i, j int) bool {
-		it := l.closedConns[i].DeleteAt
-		jt := l.closedConns[i].DeleteAt
-		return it.After(jt)
+		delete(l.conns, id)
 	})
 	return nil
 }
 
+func (l *Listener) Close() error { return l.close(nil) }
+
 type Conn struct {
-	laddr, raddr netip.AddrPort
-	isn          uint32
-	loopback     bool
-	notTrunc     bool
+	itcp.ID
+	loopback bool
 
 	tcp windows.Handle
 
@@ -262,7 +235,7 @@ func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 
 	loopback := divert.Loopback(laddr.Addr(), raddr.Addr())
 	c := newConnect(
-		laddr, raddr, 0,
+		itcp.ID{Local: laddr, Remote: raddr, ISN: 0},
 		loopback, idx, nil,
 	)
 	c.tcp = tcp
@@ -270,11 +243,9 @@ func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	return c, c.init(cfg)
 }
 
-func newConnect(laddr, raddr netip.AddrPort, isn uint32, loopback bool, ifIdx int, closeCall itcp.CloseCallback) *Conn {
+func newConnect(id itcp.ID, loopback bool, ifIdx int, closeCall itcp.CloseCallback) *Conn {
 	var conn = &Conn{
-		laddr:      laddr,
-		raddr:      raddr,
-		isn:        isn,
+		ID:         id,
 		loopback:   loopback,
 		injectAddr: &divert.Address{},
 		closeFn:    closeCall,
@@ -292,12 +263,12 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 		filter = fmt.Sprintf(
 			// outbound and
 			"tcp and localPort=%d and localAddr=%s and remotePort=%d and remoteAddr=%s",
-			c.raddr.Port(), c.raddr.Addr().String(), c.laddr.Port(), c.laddr.Addr().String(),
+			c.Remote.Port(), c.Remote.Addr().String(), c.Local.Port(), c.Local.Addr().String(),
 		)
 	} else {
 		filter = fmt.Sprintf(
 			"tcp and localPort=%d and localAddr=%s and remotePort=%d and remoteAddr=%s",
-			c.laddr.Port(), c.laddr.Addr().String(), c.raddr.Port(), c.raddr.Addr().String(),
+			c.Local.Port(), c.Local.Addr().String(), c.Remote.Port(), c.Remote.Addr().String(),
 		)
 	}
 
@@ -308,14 +279,13 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 	}
 
 	if c.ipstack, err = ipstack.New(
-		c.laddr.Addr(), c.raddr.Addr(),
+		c.Local.Addr(), c.Remote.Addr(),
 		header.TCPProtocolNumber,
 		cfg.IPStack.Unmarshal(),
 	); err != nil {
 		return err
 	}
 
-	c.notTrunc = cfg.NotTrunc
 	return nil
 }
 
@@ -324,7 +294,7 @@ func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 	n, err := c.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
-			return errors.WithStack(io.ErrShortBuffer)
+			return errorx.ShortBuff(n)
 		}
 		return err
 	}
@@ -368,7 +338,7 @@ func (c *Conn) Inject(ctx context.Context, p *packet.Packet) (err error) {
 func (c *Conn) Close() error {
 	var err error
 	if c.closeFn != nil {
-		if e := c.closeFn(c.raddr, c.isn); e != nil {
+		if e := c.closeFn(c.ID); e != nil {
 			err = e
 		}
 	}
@@ -385,5 +355,5 @@ func (c *Conn) Close() error {
 	return err
 }
 
-func (c *Conn) LocalAddr() netip.AddrPort  { return c.laddr }
-func (c *Conn) RemoteAddr() netip.AddrPort { return c.raddr }
+func (c *Conn) LocalAddr() netip.AddrPort  { return c.Local }
+func (c *Conn) RemoteAddr() netip.AddrPort { return c.Remote }
