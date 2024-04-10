@@ -6,7 +6,7 @@ require (
 	bou.ke/monkey v1.0.2
 	github.com/go-ping/ping v1.1.0
 	github.com/google/gopacket v1.1.19
-	github.com/lysShub/divert-go v0.0.0-20240313084012-1361fa303219
+	github.com/lysShub/divert-go v0.0.0-20240410134915-f315ccee7ff6
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
 	github.com/mdlayher/packet v1.0.0 // indirect
 	github.com/stretchr/testify v1.8.4
@@ -25,7 +25,7 @@ require (
 )
 
 require (
-	github.com/lysShub/wintun-go v0.0.0-20240311102803-07195f507e37
+	github.com/lysShub/wintun-go v0.0.0-20240410130619-383598c11ea1
 	golang.org/x/sync v0.1.0
 	golang.zx2c4.com/wireguard/windows v0.5.3
 )

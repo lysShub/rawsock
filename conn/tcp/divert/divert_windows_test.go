@@ -21,7 +21,7 @@ import (
 )
 
 func init() {
-	divert.MustLoad(divert.Mem)
+	divert.MustLoad(divert.DLL)
 }
 
 func Test_Listen(t *testing.T) {

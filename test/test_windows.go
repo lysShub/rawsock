@@ -26,7 +26,7 @@ func (t *NicTuple) start() error {
 
 func (t *NicTuple) srv(self, peer *wintun.Adapter, peerAddr netip.Addr) {
 	for t.statue.Load() == 0 {
-		p, err := self.Receive(context.Background())
+		p, err := self.Recv(context.Background())
 		if err != nil {
 			panic(err)
 		}
@@ -51,7 +51,7 @@ func (t *NicTuple) srv(self, peer *wintun.Adapter, peerAddr netip.Addr) {
 				// 	)
 				// }
 
-				np, err := peer.AllocPacket(uint32(len(p)))
+				np, err := peer.Alloc(len(p))
 				if err != nil {
 					panic(err)
 				}
@@ -63,7 +63,7 @@ func (t *NicTuple) srv(self, peer *wintun.Adapter, peerAddr netip.Addr) {
 			}
 		default:
 		}
-		self.ReleasePacket(p)
+		self.Release(p)
 	}
 	self.Close()
 	t.statue.Add(1)

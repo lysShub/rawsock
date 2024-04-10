@@ -343,13 +343,12 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	}
 	pkt.SetData(n)
 
-	if debug.Debug() {
-		test.ValidIP(test.T(), pkt.Bytes())
-	}
-
 	hdr, err := iconn.ValidComplete(pkt.Bytes())
 	if err != nil {
 		return err
+	}
+	if debug.Debug() {
+		test.ValidIP(test.T(), pkt.Bytes())
 	}
 	pkt.SetHead(pkt.Head() + int(hdr))
 	return nil

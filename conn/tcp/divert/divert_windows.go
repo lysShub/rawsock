@@ -19,6 +19,7 @@ import (
 	"github.com/lysShub/sockit/errorx"
 	"github.com/lysShub/sockit/helper/ipstack"
 	"github.com/lysShub/sockit/packet"
+	"github.com/lysShub/sockit/route"
 	"github.com/lysShub/sockit/test"
 	"github.com/lysShub/sockit/test/debug"
 	"golang.org/x/sys/windows"
@@ -217,14 +218,19 @@ func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 		return nil, err
 	}
 
-	addr, idx, err := divert.Gateway(raddr.Addr())
-	if err != nil {
+	var entry route.Entry
+	if rows, err := route.GetTable(); err != nil {
 		return nil, err
+	} else {
+		entry, err = rows.MatchRoot(raddr.Addr())
+		if err != nil {
+			return nil, err
+		}
 	}
 	if laddr.Addr().IsUnspecified() {
-		laddr = netip.AddrPortFrom(addr, laddr.Port())
+		laddr = netip.AddrPortFrom(entry.Addr, laddr.Port())
 	} else {
-		if laddr.Addr() != addr {
+		if laddr.Addr() != entry.Addr {
 			err = errors.WithMessagef(
 				windows.ERROR_NETWORK_UNREACHABLE,
 				"%s -> %s", laddr.Addr().String(), raddr.Addr().String(),
@@ -236,7 +242,7 @@ func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	loopback := divert.Loopback(laddr.Addr(), raddr.Addr())
 	c := newConnect(
 		itcp.ID{Local: laddr, Remote: raddr, ISN: 0},
-		loopback, idx, nil,
+		loopback, int(entry.Interface), nil,
 	)
 	c.tcp = tcp
 
@@ -289,8 +295,8 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 	return nil
 }
 
-func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
-	b := p.Bytes()
+func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
+	b := pkt.Bytes()
 	n, err := c.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
@@ -299,17 +305,15 @@ func (c *Conn) Read(ctx context.Context, p *packet.Packet) (err error) {
 		return err
 	}
 
-	p.SetData(n)
+	pkt.SetData(n)
+	hdr, err := iconn.ValidComplete(pkt.Bytes())
+	if err != nil {
+		return err
+	}
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Bytes())
+		test.ValidIP(test.T(), pkt.Bytes())
 	}
-
-	switch header.IPVersion(b) {
-	case 4:
-		p.SetHead(p.Head() + int(header.IPv4(b).HeaderLength()))
-	case 6:
-		p.SetHead(p.Head() + header.IPv6MinimumSize)
-	}
+	pkt.SetHead(pkt.Head() + int(hdr))
 	return nil
 }
 
