@@ -6,6 +6,7 @@ package conn
 import (
 	"net"
 	"net/netip"
+	"sync"
 	"unsafe"
 
 	"github.com/lysShub/sockit/helper"
@@ -68,20 +69,59 @@ func ListenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 	return l, netip.AddrPortFrom(laddr.Addr(), addr.Port()), nil
 }
 
-func SetTSOByAddr(addr netip.Addr, tso bool) error {
+var tsoCache = struct {
+	sync.RWMutex
+	cache map[netip.Addr]bool
+}{
+	cache: map[netip.Addr]bool{},
+}
+
+func SetTSO(local, remote netip.Addr, tso bool) error {
+	// get route table is expensive call, optimize for server case
+	if !remote.IsPrivate() {
+		tsoCache.RLock()
+		old, has := tsoCache.cache[local]
+		tsoCache.RUnlock()
+
+		if has && old == tso {
+			return nil
+		} else {
+			defer func() {
+				tsoCache.Lock()
+				tsoCache.cache[local] = tso
+				tsoCache.Unlock()
+			}()
+		}
+	}
+
 	table, err := route.GetTable()
 	if err != nil {
 		return err
 	}
 
-	for _, e := range table {
-		if e.Addr == addr {
-			name, err := helper.IoctlGifname(int(e.Interface))
-			if err != nil {
-				return err
+	var ifIdx uint32
+	if remote.IsPrivate() {
+		for _, e := range table {
+			if e.Addr.IsLoopback() {
+				ifIdx = e.Interface
+				break
 			}
-			return helper.IoctlTSO(name, tso)
+		}
+	} else {
+		for _, e := range table {
+			if e.Addr == local {
+				ifIdx = e.Interface
+				break
+			}
 		}
 	}
-	return nil
+	if ifIdx == 0 {
+		return errors.Errorf("invalid local address %s", local.String())
+	}
+
+	name, err := helper.IoctlGifname(int(ifIdx))
+	if err != nil {
+		return err
+	}
+	return helper.IoctlTSO(name, tso)
 }

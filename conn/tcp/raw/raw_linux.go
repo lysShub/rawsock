@@ -55,10 +55,6 @@ func Listen(laddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
 	if err != nil {
 		return nil, l.close(err)
 	}
-	err = iconn.SetTSOByAddr(l.addr.Addr(), l.cfg.TSO)
-	if err != nil {
-		return nil, l.close(err)
-	}
 
 	l.raw, err = net.ListenIP(
 		"ip:tcp",
@@ -197,9 +193,6 @@ func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	if err != nil {
 		return nil, c.close(err)
 	}
-	if err = iconn.SetTSOByAddr(c.Remote.Addr(), cfg.TSO); err != nil {
-		return nil, c.close(err)
-	}
 
 	return c, c.init(cfg)
 }
@@ -213,26 +206,30 @@ func newConnect(id itcp.ID, closeCall itcp.CloseCallback, ctxPeriod time.Duratio
 }
 
 func (c *Conn) init(cfg *conn.Config) (err error) {
-	c.raw, err = net.DialIP(
+	if c.raw, err = net.DialIP(
 		"ip:tcp",
 		&net.IPAddr{IP: c.Local.Addr().AsSlice(), Zone: c.Local.Addr().Zone()},
 		&net.IPAddr{IP: c.ID.Remote.Addr().AsSlice(), Zone: c.ID.Remote.Addr().Zone()},
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	raw, err := c.raw.SyscallConn()
-	if err != nil {
+	if err = iconn.SetTSO(
+		c.Local.Addr(), c.Remote.Addr(), cfg.TSO,
+	); err != nil {
 		return err
 	}
 
 	// filter src/dst ports
-	if err = bpf.SetRawBPF(
-		raw,
-		bpf.FilterPorts(c.ID.Remote.Port(), c.Local.Port()),
-	); err != nil {
+	if raw, err := c.raw.SyscallConn(); err != nil {
 		return err
+	} else {
+		if err = bpf.SetRawBPF(
+			raw,
+			bpf.FilterPorts(c.ID.Remote.Port(), c.Local.Port()),
+		); err != nil {
+			return err
+		}
 	}
 
 	if c.ipstack, err = ipstack.New(
@@ -242,7 +239,6 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 	); err != nil {
 		return err
 	}
-
 	return nil
 }
 

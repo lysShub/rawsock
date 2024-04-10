@@ -2,6 +2,7 @@ package route_test
 
 import (
 	"fmt"
+	"net/netip"
 	"testing"
 
 	"github.com/lysShub/sockit/route"
@@ -12,5 +13,8 @@ func TestXxxx(t *testing.T) {
 	rs, err := route.GetTable()
 	require.NoError(t, err)
 
-	fmt.Println(rs.String())
+	entry, err := rs.MatchRoot(netip.MustParseAddr("8.8.8.8"))
+	require.NoError(t, err)
+
+	fmt.Println(entry.String())
 }

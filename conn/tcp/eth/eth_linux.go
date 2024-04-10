@@ -58,9 +58,6 @@ func Listen(laddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
 	if err != nil {
 		return nil, l.close(err)
 	}
-	if err = iconn.SetTSOByAddr(l.addr.Addr(), l.cfg.TSO); err != nil {
-		return nil, l.close(err)
-	}
 
 	l.raw, err = net.ListenIP(
 		"ip:tcp",
@@ -141,7 +138,7 @@ func (l *Listener) Accept() (conn.RawConn, error) {
 
 		l.connsMu.RLock()
 		_, has := l.conns[id]
-		l.connsMu.RLock()
+		l.connsMu.RUnlock()
 
 		if !has {
 			l.connsMu.Lock()
@@ -206,9 +203,6 @@ func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	if err != nil {
 		return nil, c.close(err)
 	}
-	if err := iconn.SetTSOByAddr(c.Local.Addr(), cfg.TSO); err != nil {
-		return nil, c.close(err)
-	}
 
 	if err := c.init(cfg); err != nil {
 		return nil, c.close(err)
@@ -230,7 +224,7 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 		return err
 	}
 
-	// set gateway mac address
+	// get gateway mac address
 	var ifi *net.Interface
 	if !entry.Next.IsValid() {
 		// is on loopback
@@ -268,6 +262,12 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 				return errors.WithStack(err)
 			}
 		}
+	}
+
+	if err := iconn.SetTSO(
+		c.Local.Addr(), c.Remote.Addr(), cfg.TSO,
+	); err != nil {
+		return err
 	}
 
 	// create eth conn and set bpf filter

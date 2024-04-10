@@ -157,7 +157,7 @@ func (l *Listener) Accept() (conn.RawConn, error) {
 		if !has {
 			l.connsMu.Lock()
 			l.conns[id] = struct{}{}
-			l.connsMu.RLock()
+			l.connsMu.Unlock()
 
 			conn := newConnect(
 				id,

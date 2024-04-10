@@ -146,9 +146,9 @@ func Test_Complete_Check(t *testing.T) {
 		require.NoError(t, err)
 		defer raw.Close()
 
-		var ip = packet.Make(0, 39)
+		var ip = packet.Make(0, 39, 0)
 		err = raw.Read(context.Background(), ip)
-		require.True(t, errors.Is(err, io.ErrShortBuffer))
+		require.True(t, errors.Is(err, io.ErrShortBuffer), err)
 	})
 
 	t.Run("ReadCtx", func(t *testing.T) {
@@ -174,7 +174,7 @@ func Test_Complete_Check(t *testing.T) {
 		require.NoError(t, err)
 		defer raw.Close()
 
-		var p = packet.Make(0, 39)
+		var p = packet.Make(0, 39, 0)
 		err = raw.Read(context.Background(), p)
 		require.True(t, errors.Is(err, io.ErrShortBuffer), err)
 	})

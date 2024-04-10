@@ -40,7 +40,7 @@ func CreateTunTuple(t require.TestingT) *NicTuple {
 	for i, addr := range addrs {
 		name := fmt.Sprintf("test%d", i+1)
 
-		ap, err := tun.Tap(name)
+		ap, err := tun.Tun(name)
 		require.NoError(t, err)
 
 		err = ap.SetAddr(netip.PrefixFrom(addr, 24))

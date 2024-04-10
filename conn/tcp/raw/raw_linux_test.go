@@ -13,6 +13,7 @@ import (
 	"bou.ke/monkey"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sys/unix"
 
 	"github.com/lysShub/sockit/conn"
 	"github.com/lysShub/sockit/packet"
@@ -86,8 +87,9 @@ func Test_Connect(t *testing.T) {
 		)
 		t.Log("seed: ", seed)
 
-		retCh := make(chan struct{})
-		go func() {
+		eg, ctx := errgroup.WithContext(context.Background())
+
+		eg.Go(func() error {
 			// todo: add noise
 			l, err := net.ListenTCP("tcp", test.TCPAddr(saddr))
 			require.NoError(t, err)
@@ -97,17 +99,14 @@ func Test_Connect(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = io.Copy(conn, conn)
-			require.NoError(t, err)
-			close(retCh)
-		}()
+			return err
+		})
 		time.Sleep(time.Second)
 
 		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
 		us := test.NewUstack(t, caddr.Addr(), false)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		test.BindRawToUstack(t, ctx, us, raw)
 
 		conn, err := gonet.DialTCPWithBind(
@@ -120,13 +119,14 @@ func Test_Connect(t *testing.T) {
 
 		test.ValidPingPongConn(t, r, conn, 0xffff)
 		require.NoError(t, conn.Close())
-		cancel()
 
-		<-retCh
+		err = eg.Wait()
+		ok := errors.Is(err, unix.ECONNRESET) || // todo: why gvisor send RST?
+			errors.Is(err, io.EOF)
+		require.True(t, ok)
 	})
 
 	t.Run("nics", func(t *testing.T) {
-		// todo: maybe checksum offload?
 		monkey.Patch(debug.Debug, func() bool { return false })
 
 		tt := test.CreateTunTuple(t)
@@ -139,8 +139,9 @@ func Test_Connect(t *testing.T) {
 		)
 		t.Log("seed: ", seed)
 
-		retCh := make(chan struct{})
-		go func() {
+		eg, ctx := errgroup.WithContext(context.Background())
+
+		eg.Go(func() error {
 			// todo: add noise
 			l, err := net.ListenTCP("tcp", test.TCPAddr(saddr))
 			require.NoError(t, err)
@@ -150,17 +151,13 @@ func Test_Connect(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = io.Copy(conn, conn)
-			require.NoError(t, err)
-			close(retCh)
-		}()
+			return err
+		})
 		time.Sleep(time.Second)
 
 		raw, err := Connect(caddr, saddr)
 		require.NoError(t, err)
 		us := test.NewUstack(t, caddr.Addr(), false)
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		test.BindRawToUstack(t, ctx, us, raw)
 
 		conn, err := gonet.DialTCPWithBind(
@@ -173,9 +170,11 @@ func Test_Connect(t *testing.T) {
 
 		test.ValidPingPongConn(t, r, conn, 0xffff)
 		require.NoError(t, conn.Close())
-		cancel()
 
-		<-retCh
+		err = eg.Wait()
+		ok := errors.Is(err, unix.ECONNRESET) ||
+			errors.Is(err, io.EOF)
+		require.True(t, ok)
 	})
 }
 
@@ -229,7 +228,7 @@ func Test_Complete_Check(t *testing.T) {
 		require.NoError(t, err)
 		defer raw.Close()
 
-		var ip = packet.Make(0, 39)
+		var ip = packet.Make(0, 39, 0)
 		err = raw.Read(context.Background(), ip)
 		require.True(t, errors.Is(err, io.ErrShortBuffer))
 	})
@@ -257,7 +256,7 @@ func Test_Complete_Check(t *testing.T) {
 		require.NoError(t, err)
 		defer raw.Close()
 
-		var p = packet.Make(0, 39)
+		var p = packet.Make(0, 39, 0)
 		err = raw.Read(context.Background(), p)
 		require.True(t, errors.Is(err, io.ErrShortBuffer))
 	})
