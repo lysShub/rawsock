@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -18,8 +19,10 @@ import (
 )
 
 type Pcap struct {
-	fh *os.File
-	w  *pcapgo.Writer
+	mu   sync.RWMutex
+	path string
+	fh   *os.File
+	w    *pcapgo.Writer
 }
 
 func NewPcap(file string) (*Pcap, error) {
@@ -35,8 +38,9 @@ func NewPcap(file string) (*Pcap, error) {
 	}
 
 	return &Pcap{
-		fh: fh,
-		w:  w,
+		path: file,
+		fh:   fh,
+		w:    w,
 	}, nil
 }
 
@@ -72,21 +76,32 @@ func PcapIPs[T []byte | *packet.Packet](file string, ips ...T) error {
 
 func (p *Pcap) Close() error { return p.fh.Close() }
 
-func (p *Pcap) Write(eth header.Ethernet) error {
+func (p *Pcap) write(eth header.Ethernet) error {
+	if debug.Debug() {
+		ValidIP(T(), eth[header.EthernetMinimumSize:])
+	}
+
 	err := p.w.WritePacket(gopacket.CaptureInfo{
 		Timestamp:      time.Now(),
 		CaptureLength:  len(eth),
 		Length:         len(eth),
 		InterfaceIndex: 0,
 	}, eth)
-	return err
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
+}
+
+func (p *Pcap) Write(eth header.Ethernet) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.write(eth)
 }
 
 func (p *Pcap) WriteIP(ip []byte) error {
-	if debug.Debug() {
-		ValidIP(T(), ip)
-	}
-
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	var eth []byte
 	switch header.IPVersion(ip) {
 	case 4:
@@ -99,7 +114,8 @@ func (p *Pcap) WriteIP(ip []byte) error {
 		)
 	}
 	eth = append(eth, ip...)
-	return p.Write(eth)
+
+	return p.write(eth)
 }
 
 type PcapWrap struct {
