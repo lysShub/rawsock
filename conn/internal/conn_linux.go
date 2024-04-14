@@ -69,27 +69,27 @@ func ListenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 	return l, netip.AddrPortFrom(laddr.Addr(), addr.Port()), nil
 }
 
-var tsoCache = struct {
+var ethOffloadCache = struct {
 	sync.RWMutex
 	cache map[netip.Addr]bool
 }{
 	cache: map[netip.Addr]bool{},
 }
 
-func SetTSO(local, remote netip.Addr, tso bool) error {
+func SetGRO(local, remote netip.Addr, tso bool) error {
 	// get route table is expensive call, optimize for server case
 	if !remote.IsPrivate() {
-		tsoCache.RLock()
-		old, has := tsoCache.cache[local]
-		tsoCache.RUnlock()
+		ethOffloadCache.RLock()
+		old, has := ethOffloadCache.cache[local]
+		ethOffloadCache.RUnlock()
 
 		if has && old == tso {
 			return nil
 		} else {
 			defer func() {
-				tsoCache.Lock()
-				tsoCache.cache[local] = tso
-				tsoCache.Unlock()
+				ethOffloadCache.Lock()
+				ethOffloadCache.cache[local] = tso
+				ethOffloadCache.Unlock()
 			}()
 		}
 	}
@@ -123,5 +123,5 @@ func SetTSO(local, remote netip.Addr, tso bool) error {
 	if err != nil {
 		return err
 	}
-	return helper.IoctlTSO(name, tso)
+	return helper.IoctlGRO(name, tso)
 }

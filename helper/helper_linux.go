@@ -250,12 +250,50 @@ func IoctlDifflags(ifi string, flags uint32) error {
 	return ioctlSifflags(ifi, fd, new)
 }
 
+func IoctlTSO(ifi string, enable bool) error {
+	return ioctlEthTool(ifi, &ethtool_value{cmd: unix.ETHTOOL_STSO, data: intbool(enable)})
+}
+
+func IoctlGSO(ifi string, enable bool) error {
+	return ioctlEthTool(ifi, &ethtool_value{cmd: unix.ETHTOOL_SGSO, data: intbool(enable)})
+}
+
+func IoctlGRO(ifi string, enable bool) error {
+	return ioctlEthTool(ifi, &ethtool_value{cmd: unix.ETHTOOL_SGRO, data: intbool(enable)})
+}
+
+const (
+	ETH_FLAG_TXVLAN = (1 << 7)  /* TX VLAN offload enabled */
+	ETH_FLAG_RXVLAN = (1 << 8)  /* RX VLAN offload enabled */
+	ETH_FLAG_LRO    = (1 << 15) /* LRO is enabled */
+	ETH_FLAG_NTUPLE = (1 << 27) /* N-tuple filters enabled */
+	ETH_FLAG_RXHASH = (1 << 28)
+)
+
+func IoctlLRO(ifi string, enable bool) error {
+	val := &ethtool_value{cmd: unix.ETHTOOL_GFLAGS}
+	if err := ioctlEthTool(ifi, val); err != nil {
+		return err
+	}
+	var v uint32
+	if enable {
+		v = val.data | ETH_FLAG_LRO
+	} else {
+		v = val.data ^ ETH_FLAG_LRO
+	}
+	if val.data == v {
+		return nil
+	}
+
+	return ioctlEthTool(ifi, &ethtool_value{cmd: unix.ETHTOOL_SFLAGS, data: v})
+}
+
 type ethtool_value struct {
 	cmd  uint32
 	data uint32
 }
 
-func IoctlTSO(ifi string, enable bool) error {
+func ioctlEthTool(ifi string, val *ethtool_value) error {
 	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
 	if err != nil {
 		return err
@@ -267,10 +305,7 @@ func IoctlTSO(ifi string, enable bool) error {
 		return err
 	}
 
-	valptr := uintptr(unsafe.Pointer(&ethtool_value{
-		cmd:  unix.ETHTOOL_STSO,
-		data: intbool(enable),
-	}))
+	valptr := uintptr(unsafe.Pointer(val))
 	*(*uintptr)(
 		unsafe.Add(unsafe.Pointer(req), unix.IFNAMSIZ),
 	) = valptr

@@ -214,8 +214,8 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 		return err
 	}
 
-	if err = iconn.SetTSO(
-		c.Local.Addr(), c.Remote.Addr(), cfg.TSO,
+	if err = iconn.SetGRO(
+		c.Local.Addr(), c.Remote.Addr(), cfg.GRO,
 	); err != nil {
 		return err
 	}

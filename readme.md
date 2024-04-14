@@ -2,7 +2,7 @@
 
 # sockit
 
-**golang transport layer read/write.**
+**golang transport layer(raw) socket read/write and kits.**
 
 
 TODO: 

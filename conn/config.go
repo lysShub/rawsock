@@ -9,7 +9,7 @@ import (
 type Config struct {
 	UsedPort  bool
 	CtxPeriod time.Duration
-	TSO       bool
+	GRO       bool
 	IPStack   *ipstack.Configs
 
 	DivertPriorty int16
@@ -21,7 +21,7 @@ func Options(opts ...Option) *Config {
 	var cfg = &Config{
 		UsedPort:  false,
 		CtxPeriod: time.Millisecond * 100,
-		TSO:       false,
+		GRO:       false,
 		IPStack:   ipstack.Options(),
 
 		DivertPriorty: 0,
@@ -56,9 +56,9 @@ func Checksum(opts ...ipstack.Option) Option {
 	}
 }
 
-// TSO enable/disable TSO, default false
-func TSO(enable bool) Option {
+// GRO enable/disable GRO, default false
+func GRO(enable bool) Option {
 	return func(c *Config) {
-		c.TSO = enable
+		c.GRO = enable
 	}
 }
