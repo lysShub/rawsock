@@ -2,8 +2,6 @@ package errorx
 
 import (
 	"log/slog"
-	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -62,7 +60,7 @@ func position(f errors.Frame) slog.Value {
 		return slog.StringValue("")
 	}
 	file, line := fn.FileLine(pc)
-	file = relpath(file)
+	// file = relpath(file)
 	strn := strconv.Itoa(line)
 
 	b := strings.Builder{}
@@ -71,28 +69,4 @@ func position(f errors.Frame) slog.Value {
 	b.WriteRune(':')
 	b.WriteString(strn)
 	return slog.StringValue(b.String())
-}
-
-var base string
-
-func init() {
-	var err error
-	base, err = os.Getwd()
-	if err == nil {
-		base = filepath.Dir(base)
-		base = filepath.Dir(base)
-		base = filepath.ToSlash(base)
-	}
-}
-
-func relpath(abs string) string {
-	if base == "" {
-		return abs
-	}
-
-	rel, ok := strings.CutPrefix(abs, base)
-	if ok {
-		return rel[1:]
-	}
-	return abs
 }

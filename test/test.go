@@ -339,8 +339,12 @@ func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int
 			}
 			require.Equal(t, len(b), n)
 
-			buf <- b
-			i += len(b)
+			select {
+			case buf <- b:
+				i += len(b)
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
@@ -364,6 +368,7 @@ func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int
 	}
 }
 
+// todo: DuplexRawAndLink
 func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw conn.RawConn) {
 	var mtu = 1536
 	go func() {

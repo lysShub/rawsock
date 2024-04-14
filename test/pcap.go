@@ -179,22 +179,30 @@ func (w *PcapWrap) Read(ctx context.Context, p *packet.Packet) (err error) {
 }
 
 func (w *PcapWrap) Write(ctx context.Context, pkt *packet.Packet) (err error) {
+	clone := pkt.Clone()
+
 	err = w.RawConn.Write(ctx, pkt)
 	if err != nil {
 		return err
 	}
 
-	w.ipstack.AttachOutbound(pkt)
+	w.ipstack.AttachOutbound(clone)
 	if debug.Debug() {
-		ValidIP(T(), pkt.Bytes())
+		ValidIP(T(), clone.Bytes())
 	}
-	return w.pcap.WriteIP(pkt.Bytes())
+	return w.pcap.WriteIP(clone.Bytes())
 }
-func (w *PcapWrap) Inject(ctx context.Context, p *packet.Packet) (err error) {
-	err = w.RawConn.Inject(ctx, p)
+func (w *PcapWrap) Inject(ctx context.Context, pkt *packet.Packet) (err error) {
+	clone := pkt.Clone()
+
+	err = w.RawConn.Inject(ctx, pkt)
 	if err != nil {
 		return err
 	}
 
-	return w.pcap.WriteIP(p.Bytes())
+	w.ipstack.AttachInbound(clone)
+	if debug.Debug() {
+		ValidIP(T(), clone.Bytes())
+	}
+	return w.pcap.WriteIP(clone.Bytes())
 }
