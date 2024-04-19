@@ -1,8 +1,16 @@
 package errorx
 
 func Temporary(err error) bool {
-	e, ok := err.(interface{ Temporary() bool })
-	return ok && e.Temporary()
+	for {
+		switch x := err.(type) {
+		case interface{ Temporary() bool }:
+			return x.Temporary()
+		case interface{ Unwrap() error }:
+			err = x.Unwrap()
+		default:
+			return false
+		}
+	}
 }
 
 type temporaryErr struct {
