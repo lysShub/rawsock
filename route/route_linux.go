@@ -6,6 +6,7 @@ package route
 import (
 	"net"
 	"net/netip"
+	"sort"
 	"syscall"
 	"unsafe"
 
@@ -40,7 +41,7 @@ func GetTable() (Table, error) {
 		return nil, err
 	}
 
-	var es Table
+	var table Table
 	for i := 0; i < len(msgs); i++ {
 		m := msgs[i]
 		switch m.Header.Type {
@@ -66,7 +67,7 @@ func GetTable() (Table, error) {
 				e.Addr = addr.Addr()
 			}
 
-			es = append(es, e)
+			table = append(table, e)
 		case unix.NLMSG_DONE:
 			i = len(msgs) // break
 		case unix.NLMSG_NOOP:
@@ -78,7 +79,9 @@ func GetTable() (Table, error) {
 			return nil, errors.Errorf("unexpect nlmsghdr type 0x%02x", m.Header.Type)
 		}
 	}
-	return es, nil
+
+	sort.Sort(tableSortImpl(table))
+	return table, nil
 }
 
 func collectEntry(attrs []syscall.NetlinkRouteAttr, ones uint8) Entry {

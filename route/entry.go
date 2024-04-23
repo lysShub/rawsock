@@ -34,6 +34,15 @@ func (e Entry) String() string {
 	return p.string()
 }
 
+func (e Entry) Equal(entry Entry) bool {
+	return e.Valid() && entry.Valid() &&
+		e.Dest == entry.Dest &&
+		e.Next == entry.Next &&
+		e.Interface == entry.Interface &&
+		e.Addr == entry.Addr &&
+		e.Metric == entry.Metric
+}
+
 func (e Entry) string(p *printer) {
 	next := e.Next.String()
 	if !e.Next.IsValid() {
@@ -82,7 +91,7 @@ func (p *printer) string() string {
 	var b = &strings.Builder{}
 	for i, e := range p.elems {
 		fixWrite(b, e, p.maxs[i%printCols]+4)
-		if i%printCols == 3 {
+		if i%printCols == 3 && i != len(p.elems)-1 {
 			b.WriteByte('\n')
 		}
 	}

@@ -119,6 +119,29 @@ func Test_Connect(t *testing.T) {
 
 }
 
+func Test_Default_Addr(t *testing.T) {
+	var addr = netip.AddrPortFrom(netip.IPv4Unspecified(), 0)
+	t.Run("listen", func(t *testing.T) {
+		l, err := Listen(addr)
+		require.NoError(t, err)
+		defer l.Close()
+
+		laddr := l.Addr()
+		require.Equal(t, test.LocIP(), laddr.Addr())
+		require.NotZero(t, laddr.Port())
+	})
+
+	t.Run("dial", func(t *testing.T) {
+		conn, err := Connect(addr, netip.AddrPortFrom(netip.AddrFrom4([4]byte{8, 8, 8, 8}), 80))
+		require.NoError(t, err)
+		defer conn.Close()
+
+		laddr := conn.LocalAddr()
+		require.Equal(t, test.LocIP(), laddr.Addr())
+		require.NotZero(t, laddr.Port())
+	})
+}
+
 func Test_Complete_Check(t *testing.T) {
 	// todo: maybe checksum offload?
 	monkey.Patch(debug.Debug, func() bool { return false })

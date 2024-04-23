@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func GetIndex(t *testing.T, addr netip.Addr) int32 {
+func GetIfidx(t *testing.T, addr netip.Addr) int32 {
 	ifs, err := net.Interfaces()
 	require.NoError(t, err)
 

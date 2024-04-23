@@ -28,6 +28,7 @@ import (
 	"github.com/mdlayher/arp"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
@@ -219,9 +220,17 @@ func newConnect(id itcp.ID, closeCall itcp.CloseCallback, ctxPeriod time.Duratio
 }
 
 func (c *Conn) init(cfg *conn.Config) (err error) {
-	entry, err := route.GetBestInterface(c.Remote.Addr())
+	table, err := route.GetTable()
 	if err != nil {
 		return err
+	}
+
+	entry := table.Match(c.Remote.Addr())
+	if !entry.Valid() {
+		err = errors.WithMessagef(
+			unix.EADDRNOTAVAIL, c.Remote.Addr().String(),
+		)
+		return errors.WithStack(err)
 	}
 
 	// get gateway mac address

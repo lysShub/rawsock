@@ -11,7 +11,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// BindLocal, forbid other process use this port
+// BindLocal, occupy local tcp port, 1. alloc useable port for default-port, 2. avoid other process
+// use this port, 3. system tcp stack don't send RST automatically for this port request
 func BindLocal(laddr netip.AddrPort, usedPort bool) (windows.Handle, netip.AddrPort, error) {
 	var sa windows.Sockaddr
 	var af int = windows.AF_INET
