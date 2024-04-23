@@ -18,7 +18,9 @@ import (
 	itcp "github.com/lysShub/sockit/conn/tcp/internal"
 	"github.com/lysShub/sockit/errorx"
 	"github.com/lysShub/sockit/packet"
+	"github.com/lysShub/sockit/route"
 	"github.com/pkg/errors"
+	"golang.org/x/sys/unix"
 
 	"github.com/lysShub/sockit/helper/bpf"
 	"github.com/lysShub/sockit/helper/ipstack"
@@ -49,8 +51,13 @@ func Listen(laddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
 		cfg:   conn.Options(opts...),
 		conns: make(map[itcp.ID]struct{}, 16),
 	}
-
 	var err error
+
+	// usaully should listen on all nic, but we juse listen on default nic
+	if laddr.Addr().IsUnspecified() {
+		laddr = netip.AddrPortFrom(conn.LocalAddr(), laddr.Port())
+	}
+
 	l.tcp, l.addr, err = iconn.ListenLocal(laddr, l.cfg.UsedPort)
 	if err != nil {
 		return nil, l.close(err)
@@ -183,18 +190,46 @@ var _ conn.RawConn = (*Conn)(nil)
 
 func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	cfg := conn.Options(opts...)
+
+	table, err := route.GetTable()
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	entry := table.Match(raddr.Addr())
+	if !entry.Valid() {
+		err = errors.WithMessagef(
+			unix.ENETUNREACH,
+			"%s -> %s", laddr.Addr().String(), raddr.Addr().String(),
+		)
+		return nil, errors.WithStack(err)
+	}
+
+	if laddr.Addr().IsUnspecified() {
+		laddr = netip.AddrPortFrom(entry.Addr, laddr.Port())
+	} else {
+		if laddr.Addr() != entry.Addr {
+			err = errors.WithMessagef(
+				unix.EADDRNOTAVAIL, laddr.Addr().String(),
+			) // tood: use net.OpErr
+			return nil, errors.WithStack(err)
+		}
+	}
+
+	tcp, laddr, err := iconn.ListenLocal(laddr, cfg.UsedPort)
+	if err != nil {
+		return nil, err
+	}
+
 	var c = newConnect(
 		itcp.ID{Local: laddr, Remote: raddr, ISN: 0},
 		nil, cfg.CtxPeriod,
 	)
+	c.tcp = tcp
 
-	var err error
-	c.tcp, c.Local, err = iconn.ListenLocal(laddr, cfg.UsedPort)
-	if err != nil {
+	if err = c.init(cfg); err != nil {
 		return nil, c.close(err)
 	}
-
-	return c, c.init(cfg)
+	return c, nil
 }
 
 func newConnect(id itcp.ID, closeCall itcp.CloseCallback, ctxPeriod time.Duration) *Conn {

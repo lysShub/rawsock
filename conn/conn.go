@@ -52,14 +52,19 @@ type RawConn interface {
 }
 
 func LocalAddr() netip.Addr {
-	c, _ := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 53})
+	c, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: []byte{8, 8, 8, 8}, Port: 53})
+	if err != nil {
+		panic(err)
+	}
+	defer c.Close()
 	return netip.MustParseAddrPort(c.LocalAddr().String()).Addr()
 }
 
 func LocalAddr6() netip.Addr {
-	c, err := net.DialUDP("udp6", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 53})
+	c, err := net.DialUDP("udp6", nil, &net.UDPAddr{IP: net.ParseIP("::FFFF:8.8.8.8"), Port: 53})
 	if err != nil {
-		return netip.Addr{}
+		panic(err)
 	}
+	defer c.Close()
 	return netip.MustParseAddrPort(c.LocalAddr().String()).Addr()
 }

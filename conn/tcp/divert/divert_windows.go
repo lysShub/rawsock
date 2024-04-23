@@ -58,14 +58,19 @@ type Listener struct {
 
 var _ conn.Listener = (*Listener)(nil)
 
-func Listen(locAddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
+func Listen(laddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
 	var l = &Listener{
 		cfg:   conn.Options(opts...),
 		conns: make(map[itcp.ID]struct{}, 16),
 	}
 
+	// usaully should listen on all nic, but we juse listen on default nic
+	if laddr.Addr().IsUnspecified() {
+		laddr = netip.AddrPortFrom(conn.LocalAddr(), laddr.Port())
+	}
+
 	var err error
-	l.tcp, l.addr, err = iconn.BindLocal(locAddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = iconn.BindLocal(laddr, l.cfg.UsedPort)
 	if err != nil {
 		l.Close()
 		return nil, err
@@ -198,7 +203,8 @@ type Conn struct {
 
 	ipstack *ipstack.IPStack
 
-	closeFn itcp.CloseCallback
+	closeFn  itcp.CloseCallback
+	closeErr atomic.Pointer[error]
 }
 
 var outboundAddr = func() *divert.Address {
@@ -210,43 +216,76 @@ var outboundAddr = func() *divert.Address {
 
 var _ conn.RawConn = (*Conn)(nil)
 
+func (c *Conn) close(cause error) error {
+	if c.closeErr.CompareAndSwap(nil, &net.ErrClosed) {
+		if c.closeFn != nil {
+			if err := c.closeFn(c.ID); err != nil {
+				cause = err
+			}
+		}
+
+		if c.tcp != 0 {
+			if err := windows.Close(c.tcp); err != nil {
+				cause = err
+			}
+		}
+
+		if c.raw != nil {
+			if err := c.raw.Close(); err != nil {
+				cause = err
+			}
+		}
+
+		if cause != nil {
+			c.closeErr.Store(&cause)
+		}
+		return cause
+	}
+	return *c.closeErr.Load()
+}
+
 func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	cfg := conn.Options(opts...)
+
+	table, err := route.GetTable()
+	if err != nil {
+		return nil, err
+	}
+	entry := table.Match(raddr.Addr())
+	if !entry.Valid() {
+		err = errors.WithMessagef(
+			windows.ERROR_NETWORK_UNREACHABLE,
+			"%s -> %s", laddr.Addr().String(), raddr.Addr().String(),
+		)
+		return nil, errors.WithStack(err)
+	}
+
+	if laddr.Addr().IsUnspecified() {
+		laddr = netip.AddrPortFrom(entry.Addr, laddr.Port())
+	} else {
+		if laddr.Addr() != entry.Addr {
+			err = errors.WithMessagef(
+				windows.WSAEADDRNOTAVAIL, laddr.Addr().String(),
+			)
+			return nil, errors.WithStack(err)
+		}
+	}
 
 	tcp, laddr, err := iconn.BindLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, err
 	}
 
-	var entry route.Entry
-	if rows, err := route.GetTable(); err != nil {
-		return nil, err
-	} else {
-		entry, err = rows.MatchRoot(raddr.Addr())
-		if err != nil {
-			return nil, err
-		}
-	}
-	if laddr.Addr().IsUnspecified() {
-		laddr = netip.AddrPortFrom(entry.Addr, laddr.Port())
-	} else {
-		if laddr.Addr() != entry.Addr {
-			err = errors.WithMessagef(
-				windows.ERROR_NETWORK_UNREACHABLE,
-				"%s -> %s", laddr.Addr().String(), raddr.Addr().String(),
-			)
-			return nil, err
-		}
-	}
-
-	loopback := divert.Loopback(laddr.Addr(), raddr.Addr())
 	c := newConnect(
 		itcp.ID{Local: laddr, Remote: raddr, ISN: 0},
-		loopback, int(entry.Interface), nil,
+		table.Loopback(raddr.Addr()), int(entry.Interface), nil,
 	)
 	c.tcp = tcp
 
-	return c, c.init(cfg)
+	if err := c.init(cfg); err != nil {
+		return nil, c.close(err)
+	}
+	return c, nil
 }
 
 func newConnect(id itcp.ID, loopback bool, ifIdx int, closeCall itcp.CloseCallback) *Conn {
@@ -339,25 +378,7 @@ func (c *Conn) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	return err
 }
 
-func (c *Conn) Close() error {
-	var err error
-	if c.closeFn != nil {
-		if e := c.closeFn(c.ID); e != nil {
-			err = e
-		}
-	}
-	if c.tcp != 0 {
-		if e := windows.Close(c.tcp); e != nil {
-			err = e
-		}
-	}
-	if c.raw != nil {
-		if e := c.raw.Close(); e != nil {
-			err = e
-		}
-	}
-	return err
-}
+func (c *Conn) Close() error { return c.close(nil) }
 
 func (c *Conn) LocalAddr() netip.AddrPort  { return c.Local }
 func (c *Conn) RemoteAddr() netip.AddrPort { return c.Remote }

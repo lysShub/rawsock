@@ -17,7 +17,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// ListenLocal occupy local port and avoid system stack reply RST
+// ListenLocal occupy local tcp port, 1. alloc useable port for default-port, 2. avoid other process
+// use this port, 3. system tcp stack don't send RST automatically for this port request
 func ListenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.AddrPort, error) {
 	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: laddr.Addr().AsSlice(), Port: int(laddr.Port())})
 	if err != nil {
@@ -71,24 +72,24 @@ func ListenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 
 var ethOffloadCache = struct {
 	sync.RWMutex
-	cache map[netip.Addr]bool
+	GRO map[netip.Addr]bool
 }{
-	cache: map[netip.Addr]bool{},
+	GRO: map[netip.Addr]bool{},
 }
 
-func SetGRO(local, remote netip.Addr, tso bool) error {
-	// get route table is expensive call, optimize for server case
+func SetGRO(local, remote netip.Addr, gro bool) error {
+	// get route table is expensive call, cache it.
 	if !remote.IsPrivate() {
 		ethOffloadCache.RLock()
-		old, has := ethOffloadCache.cache[local]
+		old, has := ethOffloadCache.GRO[local]
 		ethOffloadCache.RUnlock()
 
-		if has && old == tso {
+		if has && old == gro {
 			return nil
 		} else {
 			defer func() {
 				ethOffloadCache.Lock()
-				ethOffloadCache.cache[local] = tso
+				ethOffloadCache.GRO[local] = gro
 				ethOffloadCache.Unlock()
 			}()
 		}
@@ -123,5 +124,5 @@ func SetGRO(local, remote netip.Addr, tso bool) error {
 	if err != nil {
 		return err
 	}
-	return helper.IoctlGRO(name, tso)
+	return helper.IoctlGRO(name, gro)
 }

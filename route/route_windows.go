@@ -5,6 +5,7 @@ package route
 
 import (
 	"net/netip"
+	"sort"
 
 	"github.com/lysShub/sockit/helper"
 	"github.com/pkg/errors"
@@ -65,6 +66,8 @@ func GetTable() (table Table, err error) {
 			table[i].Addr = a
 		}
 	}
+
+	sort.Sort(tableSortImpl(table))
 	return table, nil
 }
 
