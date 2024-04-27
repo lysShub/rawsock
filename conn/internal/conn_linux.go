@@ -6,6 +6,7 @@ package conn
 import (
 	"net"
 	"net/netip"
+	"os/exec"
 	"sync"
 	"unsafe"
 
@@ -124,5 +125,15 @@ func SetGRO(local, remote netip.Addr, gro bool) error {
 	if err != nil {
 		return err
 	}
+
+	// todo: support rx-gro-hw
+	// ethtool --offload eth0 rx-gro-hw off
+	out, err := exec.Command("ethtool", "--offload", name, "rx-gro-hw", "off").CombinedOutput()
+	if err != nil {
+		return err
+	} else if len(out) > 0 {
+		return errors.Errorf("exec ethtool disable rx-gro-hw: %s", string(out))
+	}
+
 	return helper.IoctlGRO(name, gro)
 }
