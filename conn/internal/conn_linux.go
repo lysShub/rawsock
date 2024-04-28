@@ -13,6 +13,8 @@ import (
 	"github.com/lysShub/sockit/helper"
 	"github.com/lysShub/sockit/route"
 	"github.com/pkg/errors"
+	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
 
 	"golang.org/x/net/bpf"
 	"golang.org/x/sys/unix"
@@ -69,6 +71,66 @@ func ListenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.A
 
 	addr := netip.MustParseAddrPort(l.Addr().String())
 	return l, netip.AddrPortFrom(laddr.Addr(), addr.Port()), nil
+}
+
+// BindLocal, occupy local tcp port, 1. alloc useable port for default-port, 2. avoid other process
+// use this port
+func BindLocal(proto tcpip.TransportProtocolNumber, laddr netip.AddrPort, usedPort bool) (int, netip.AddrPort, error) {
+	var (
+		sa unix.Sockaddr
+		af int = unix.AF_INET
+		st int = unix.SOCK_STREAM
+		po int = unix.IPPROTO_TCP
+	)
+	if laddr.Addr().Is4() {
+		sa = &unix.SockaddrInet4{Addr: laddr.Addr().As4(), Port: int(laddr.Port())}
+	} else {
+		sa = &unix.SockaddrInet6{Addr: laddr.Addr().As16(), Port: int(laddr.Port())}
+		af = unix.AF_INET6
+	}
+	switch proto {
+	case header.TCPProtocolNumber:
+	case header.UDPProtocolNumber:
+		st = unix.SOCK_DGRAM
+		po = unix.IPPROTO_UDP
+	default:
+		return 0, netip.AddrPort{}, errors.Errorf("not support protocol %d", proto)
+	}
+
+	fd, err := unix.Socket(af, st, po)
+	if err != nil {
+		return 0, netip.AddrPort{}, &net.OpError{
+			Op:  "socket",
+			Err: err,
+		}
+	}
+
+	if err := unix.Bind(fd, sa); err != nil {
+		if err == unix.EADDRINUSE && usedPort {
+			return 0, laddr, nil
+		}
+		return 0, netip.AddrPort{}, &net.OpError{
+			Op:  "bind",
+			Err: err,
+		}
+	} else if usedPort {
+		return 0, netip.AddrPort{}, errors.WithStack(ErrNotUsedPort(laddr.Port()))
+	}
+
+	if laddr.Port() == 0 {
+		rsa, err := unix.Getsockname(fd)
+		if err != nil {
+			return 0, netip.AddrPort{}, errors.WithMessage(err, "getsockname")
+		}
+		switch sa := rsa.(type) {
+		case *unix.SockaddrInet4:
+			return fd, netip.AddrPortFrom(laddr.Addr(), uint16(sa.Port)), nil
+		case *unix.SockaddrInet6:
+			return fd, netip.AddrPortFrom(laddr.Addr(), uint16(sa.Port)), nil
+		default:
+		}
+	}
+	return fd, laddr, nil
 }
 
 var ethOffloadCache = struct {

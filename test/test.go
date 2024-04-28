@@ -26,47 +26,57 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 )
 
-func calcChecksum() func(ipHdr header.IPv4) header.IPv4 {
+func calcChecksum() func(ip header.IPv4) header.IPv4 {
 	var (
-		first   = true
-		calcIP  = true
-		calcTCP = true
+		first     = true
+		calcIP    = true
+		calcTrans = true
 	)
-	return func(ipHdr header.IPv4) header.IPv4 {
-		tcpHdr := header.TCP(ipHdr.Payload())
+	return func(ip header.IPv4) header.IPv4 {
+		var t header.Transport
+		switch ip.TransportProtocol() {
+		case header.TCPProtocolNumber:
+			t = header.TCP(ip.Payload())
+		case header.UDPProtocolNumber:
+			t = header.UDP(ip.Payload())
+		default:
+			panic("")
+		}
+
 		if first {
-			calcIP = !ipHdr.IsChecksumValid()
-			calcTCP = !tcpHdr.IsChecksumValid(
-				ipHdr.SourceAddress(),
-				ipHdr.DestinationAddress(),
-				checksum.Checksum(tcpHdr.Payload(), 0),
-				uint16(len(tcpHdr.Payload())),
+			calcIP = !ip.IsChecksumValid()
+
+			psum := header.PseudoHeaderChecksum(
+				ip.TransportProtocol(),
+				ip.SourceAddress(),
+				ip.DestinationAddress(),
+				uint16(len(ip)-int(ip.HeaderLength())),
 			)
+			calcTrans = checksum.Checksum(ip.Payload(), psum) != 0xffff
 			first = false
 		}
 
 		if calcIP {
-			ipHdr.SetChecksum(0)
-			s := checksum.Checksum(ipHdr[:ipHdr.HeaderLength()], 0)
-			ipHdr.SetChecksum(^s)
+			ip.SetChecksum(0)
+			s := checksum.Checksum(ip[:ip.HeaderLength()], 0)
+			ip.SetChecksum(^s)
 		}
 
-		if calcTCP {
-
-			s := header.PseudoHeaderChecksum(
-				tcp.ProtocolNumber,
-				ipHdr.SourceAddress(),
-				ipHdr.DestinationAddress(),
-				uint16(len(tcpHdr)),
+		if calcTrans {
+			t.SetChecksum(0)
+			psum := header.PseudoHeaderChecksum(
+				ip.TransportProtocol(),
+				ip.SourceAddress(),
+				ip.DestinationAddress(),
+				uint16(len(ip)-int(ip.HeaderLength())),
 			)
-			s = checksum.Checksum(tcpHdr.Payload(), s)
-			tcpHdr.SetChecksum(0)
-			s = tcpHdr.CalculateChecksum(s)
-			tcpHdr.SetChecksum(^s)
+			sum := checksum.Checksum(ip.Payload(), psum)
+			t.SetChecksum(^sum)
 		}
-		return ipHdr
+		return ip
 	}
 }
 
@@ -131,15 +141,7 @@ func ValidIP(t require.TestingT, ip []byte) {
 	case header.TCPProtocolNumber:
 		ValidTCP(t, iphdr.Payload(), pseudoSum1)
 	case header.UDPProtocolNumber:
-		udp := header.UDP(iphdr.Payload())
-		psum := header.PseudoHeaderChecksum(
-			iphdr.TransportProtocol(),
-			iphdr.SourceAddress(),
-			iphdr.DestinationAddress(),
-			uint16(len(udp)),
-		)
-		sum := checksum.Checksum(udp, psum)
-		require.Equal(t, uint16(0xffff), sum)
+		ValidUDP(t, iphdr.Payload(), pseudoSum1)
 	case header.ICMPv4ProtocolNumber:
 		icmp := header.ICMPv4(iphdr.Payload())
 		sum := checksum.Checksum(icmp, 0)
@@ -152,6 +154,11 @@ func ValidIP(t require.TestingT, ip []byte) {
 func ValidTCP(t require.TestingT, tcp header.TCP, pseudoSum1 uint16) {
 	psum := checksum.Combine(pseudoSum1, uint16(len(tcp)))
 	sum := checksum.Checksum(tcp, psum)
+	require.Equal(t, uint16(0xffff), sum)
+}
+func ValidUDP(t require.TestingT, udp header.UDP, pseudoSum1 uint16) {
+	psum := checksum.Combine(pseudoSum1, uint16(len(udp)))
+	sum := checksum.Checksum(udp, psum)
 	require.Equal(t, uint16(0xffff), sum)
 }
 
@@ -285,6 +292,10 @@ func FullAddress(a netip.AddrPort) tcpip.FullAddress {
 		Port: a.Port(),
 	}
 }
+func FullAddressPtr(a netip.AddrPort) *tcpip.FullAddress {
+	addr := FullAddress(a)
+	return &addr
+}
 
 type ustack struct {
 	addr  tcpip.Address
@@ -299,7 +310,7 @@ func NewUstack(t require.TestingT, addr netip.Addr, handleLocal bool) *ustack {
 	laddr := tcpip.AddrFromSlice(addr.AsSlice())
 	st := stack.New(stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol},
-		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol},
+		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
 		HandleLocal:        handleLocal,
 	})
 	l := channel.New(4, 1500, "")
@@ -321,15 +332,22 @@ func NewUstack(t require.TestingT, addr netip.Addr, handleLocal bool) *ustack {
 	return u
 }
 
-func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int) {
-	var buf = make(chan []byte, 64)
+// ValidPingPongConn if set udpMss, means conn is datagram
+func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int, udpMss ...int) {
+	var buf chan []byte
+	if len(udpMss) == 0 { // udp
+		udpMss = append(udpMss, 1536)
+		buf = make(chan []byte, 1) // avoid write too fast, udp drop direct
+	} else {
+		buf = make(chan []byte, 16)
+	}
 	defer close(buf)
 
 	var ctx, cancel = context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	go func() {
 		for i := 0; i < size; {
-			b := make([]byte, min(64, size-i))
+			b := make([]byte, min(s.Int()%udpMss[0], size-i))
 			s.Read(b)
 
 			n, err := conn.Write(b)
@@ -361,8 +379,7 @@ func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int
 		n, err := io.ReadFull(conn, b)
 		require.NoError(t, err)
 		require.Equal(t, len(exp), n)
-
-		require.Equal(t, exp, b)
+		require.Equal(t, exp, b, n)
 
 		i += n
 	}
@@ -451,3 +468,18 @@ func (s *ustack) NetworkProtocolNumber() tcpip.TransportProtocolNumber {
 }
 
 func (s *ustack) Stack() *stack.Stack { return s.stack }
+
+func UDPCopy(t require.TestingT, conn net.Conn, mtu int) {
+	var b = make([]byte, mtu)
+	for {
+		n, err := conn.Read(b[:cap(b)])
+		if err != nil && errors.Is(err, net.ErrClosed) {
+			return
+		}
+		require.NoError(t, err)
+
+		m, err := conn.Write(b[:n])
+		require.NoError(t, err)
+		require.Equal(t, n, m)
+	}
+}
