@@ -18,9 +18,7 @@ import (
 	itcp "github.com/lysShub/sockit/conn/tcp/internal"
 	"github.com/lysShub/sockit/errorx"
 	"github.com/lysShub/sockit/packet"
-	"github.com/lysShub/sockit/route"
 	"github.com/pkg/errors"
-	"golang.org/x/sys/unix"
 
 	"github.com/lysShub/sockit/helper/bpf"
 	"github.com/lysShub/sockit/helper/ipstack"
@@ -191,28 +189,10 @@ var _ conn.RawConn = (*Conn)(nil)
 func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 	cfg := conn.Options(opts...)
 
-	table, err := route.GetTable()
-	if err != nil {
+	if l, err := iconn.DefaultLocal(laddr.Addr(), raddr.Addr()); err != nil {
 		return nil, errors.WithStack(err)
-	}
-	entry := table.Match(raddr.Addr())
-	if !entry.Valid() {
-		err = errors.WithMessagef(
-			unix.ENETUNREACH,
-			"%s -> %s", laddr.Addr().String(), raddr.Addr().String(),
-		)
-		return nil, errors.WithStack(err)
-	}
-
-	if laddr.Addr().IsUnspecified() {
-		laddr = netip.AddrPortFrom(entry.Addr, laddr.Port())
 	} else {
-		if laddr.Addr() != entry.Addr {
-			err = errors.WithMessagef(
-				unix.EADDRNOTAVAIL, laddr.Addr().String(),
-			) // tood: use net.OpErr
-			return nil, errors.WithStack(err)
-		}
+		laddr = netip.AddrPortFrom(l, laddr.Port())
 	}
 
 	tcp, laddr, err := iconn.ListenLocal(laddr, cfg.UsedPort)

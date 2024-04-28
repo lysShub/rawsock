@@ -86,3 +86,20 @@ func Test_ListenLocal(t *testing.T) {
 	})
 
 }
+
+func Test_SetGRO(t *testing.T) {
+
+	t.Run("base", func(t *testing.T) {
+		err := conni.SetGRO(test.LocIP(), netip.AddrFrom4([4]byte{8, 8, 8, 8}), false)
+		require.NoError(t, err)
+
+		// todo: valid it
+
+		// conni.SetGRO(test.LocIP(), netip.AddrFrom4([4]byte{8, 8, 8, 8}), true)
+	})
+
+}
+
+func Test_SetGRO_Cache(t *testing.T) {
+	t.Skip("todo")
+}

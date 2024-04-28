@@ -70,7 +70,7 @@ func Listen(laddr netip.AddrPort, opts ...conn.Option) (*Listener, error) {
 	}
 
 	var err error
-	l.tcp, l.addr, err = iconn.BindLocal(laddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = iconn.BindLocal(header.TCPProtocolNumber, laddr, l.cfg.UsedPort)
 	if err != nil {
 		l.Close()
 		return nil, err
@@ -271,7 +271,7 @@ func Connect(laddr, raddr netip.AddrPort, opts ...conn.Option) (*Conn, error) {
 		}
 	}
 
-	tcp, laddr, err := iconn.BindLocal(laddr, cfg.UsedPort)
+	tcp, laddr, err := iconn.BindLocal(header.TCPProtocolNumber, laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, err
 	}

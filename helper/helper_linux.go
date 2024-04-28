@@ -262,6 +262,11 @@ func IoctlGRO(ifi string, enable bool) error {
 	return ioctlEthTool(ifi, &ethtool_value{cmd: unix.ETHTOOL_SGRO, data: intbool(enable)})
 }
 
+func IoctlGROHW(ifi string, enable bool) error {
+	panic("todo")
+	// return ioctlEthTool(ifi, &ethtool_value{cmd: unix.ETHTOOL_SGRO, data: intbool(enable)})
+}
+
 const (
 	ETH_FLAG_TXVLAN = (1 << 7)  /* TX VLAN offload enabled */
 	ETH_FLAG_RXVLAN = (1 << 8)  /* RX VLAN offload enabled */

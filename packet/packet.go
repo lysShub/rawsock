@@ -1,7 +1,7 @@
 package packet
 
 import (
-	"log/slog"
+	"math"
 
 	"github.com/lysShub/sockit/test/debug"
 )
@@ -64,6 +64,10 @@ func (p *Packet) SetHead(head int) *Packet {
 }
 
 func (p *Packet) SetData(data int) *Packet {
+	if debug.Debug() && data == math.MaxInt {
+		println("overflow warning")
+	}
+
 	p.b = p.b[:min(p.Head()+max(data, 0), cap(p.b))]
 	return p
 }
@@ -87,7 +91,7 @@ func (p *Packet) AttachN(n int) *Packet {
 		p.i = head
 	} else {
 		if debug.Debug() {
-			slog.Debug("packet memory alloc")
+			println("packet memory alloc")
 		}
 
 		size := len(p.b) - head + DefaulfHead
@@ -118,12 +122,16 @@ func (p *Packet) Append(b []byte) *Packet {
 }
 
 func (p *Packet) AppendN(n int) *Packet {
+	if debug.Debug() && n == math.MaxInt {
+		println("overflow warning")
+	}
+
 	size := max(n, 0) + len(p.b)
 	if cap(p.b) >= size {
 		p.b = p.b[:size]
 	} else {
 		if debug.Debug() {
-			slog.Debug("packet memory alloc")
+			println("packet memory alloc")
 		}
 
 		tmp := make([]byte, size, size+DefaulfTail)
