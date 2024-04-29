@@ -18,6 +18,10 @@ type Packet struct {
 	b []byte
 }
 
+func From(b []byte) *Packet {
+	return &Packet{b: b}
+}
+
 func Make(ns ...int) *Packet {
 	var (
 		head int = DefaulfHead
