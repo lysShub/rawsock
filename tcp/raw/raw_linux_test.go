@@ -16,10 +16,10 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 
+	"github.com/lysShub/netkit/debug"
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/rawsock"
 	"github.com/lysShub/rawsock/test"
-	"github.com/lysShub/rawsock/test/debug"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"

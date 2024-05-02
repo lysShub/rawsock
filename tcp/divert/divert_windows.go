@@ -13,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/lysShub/divert-go"
+	"github.com/lysShub/netkit/debug"
 	"github.com/lysShub/netkit/errorx"
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/netkit/route"
@@ -21,7 +22,6 @@ import (
 	iconn "github.com/lysShub/rawsock/internal"
 	itcp "github.com/lysShub/rawsock/tcp/internal"
 	"github.com/lysShub/rawsock/test"
-	"github.com/lysShub/rawsock/test/debug"
 	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )

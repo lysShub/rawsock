@@ -14,13 +14,13 @@ import (
 
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 
+	"github.com/lysShub/netkit/debug"
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/rawsock"
 	"github.com/lysShub/rawsock/helper/bpf"
 	"github.com/lysShub/rawsock/helper/ipstack"
 	iconn "github.com/lysShub/rawsock/internal"
 	"github.com/lysShub/rawsock/test"
-	"github.com/lysShub/rawsock/test/debug"
 	"github.com/pkg/errors"
 )
 

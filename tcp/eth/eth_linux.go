@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lysShub/netkit/debug"
 	"github.com/lysShub/netkit/errorx"
 	"github.com/lysShub/netkit/eth"
 	"github.com/lysShub/netkit/packet"
@@ -23,7 +24,6 @@ import (
 	iconn "github.com/lysShub/rawsock/internal"
 	itcp "github.com/lysShub/rawsock/tcp/internal"
 	"github.com/lysShub/rawsock/test"
-	"github.com/lysShub/rawsock/test/debug"
 	"github.com/mdlayher/arp"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"

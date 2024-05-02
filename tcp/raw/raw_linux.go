@@ -20,10 +20,10 @@ import (
 	itcp "github.com/lysShub/rawsock/tcp/internal"
 	"github.com/pkg/errors"
 
+	"github.com/lysShub/netkit/debug"
 	"github.com/lysShub/rawsock/helper/bpf"
 	"github.com/lysShub/rawsock/helper/ipstack"
 	"github.com/lysShub/rawsock/test"
-	"github.com/lysShub/rawsock/test/debug"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 

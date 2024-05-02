@@ -11,10 +11,10 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
+	"github.com/lysShub/netkit/debug"
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/rawsock"
 	"github.com/lysShub/rawsock/helper/ipstack"
-	"github.com/lysShub/rawsock/test/debug"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
