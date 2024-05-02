@@ -14,9 +14,9 @@ import (
 	"github.com/go-ping/ping"
 	"github.com/pkg/errors"
 
-	"github.com/lysShub/sockit/conn"
+	"github.com/lysShub/netkit/packet"
+	"github.com/lysShub/sockit"
 	"github.com/lysShub/sockit/helper/ipstack"
-	"github.com/lysShub/sockit/packet"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -387,7 +387,7 @@ func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int
 }
 
 // todo: DuplexRawAndLink
-func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw conn.RawConn) {
+func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw sockit.RawConn) {
 	var mtu = 1536
 	go func() {
 		var ip = packet.Make(0, mtu)

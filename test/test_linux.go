@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/netip"
 
-	"github.com/lysShub/sockit/device/tun"
+	"github.com/lysShub/netkit/tun"
 
 	"github.com/stretchr/testify/require"
 )
