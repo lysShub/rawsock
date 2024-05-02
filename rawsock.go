@@ -1,4 +1,4 @@
-package sockit
+package rawsock
 
 import (
 	"context"

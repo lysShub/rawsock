@@ -17,13 +17,13 @@ import (
 	"github.com/lysShub/netkit/eth"
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/netkit/route"
-	"github.com/lysShub/sockit"
-	"github.com/lysShub/sockit/helper/bpf"
-	"github.com/lysShub/sockit/helper/ipstack"
-	iconn "github.com/lysShub/sockit/internal"
-	itcp "github.com/lysShub/sockit/tcp/internal"
-	"github.com/lysShub/sockit/test"
-	"github.com/lysShub/sockit/test/debug"
+	"github.com/lysShub/rawsock"
+	"github.com/lysShub/rawsock/helper/bpf"
+	"github.com/lysShub/rawsock/helper/ipstack"
+	iconn "github.com/lysShub/rawsock/internal"
+	itcp "github.com/lysShub/rawsock/tcp/internal"
+	"github.com/lysShub/rawsock/test"
+	"github.com/lysShub/rawsock/test/debug"
 	"github.com/mdlayher/arp"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
@@ -33,7 +33,7 @@ import (
 
 type Listener struct {
 	addr netip.AddrPort
-	cfg  *sockit.Config
+	cfg  *rawsock.Config
 
 	tcp *net.TCPListener
 
@@ -45,11 +45,11 @@ type Listener struct {
 	closeErr atomic.Pointer[error]
 }
 
-var _ sockit.Listener = (*Listener)(nil)
+var _ rawsock.Listener = (*Listener)(nil)
 
-func Listen(laddr netip.AddrPort, opts ...sockit.Option) (*Listener, error) {
+func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 	var l = &Listener{
-		cfg:   sockit.Options(opts...),
+		cfg:   rawsock.Options(opts...),
 		conns: make(map[itcp.ID]struct{}, 16),
 	}
 
@@ -108,7 +108,7 @@ func (l *Listener) Addr() netip.AddrPort {
 }
 
 // todo: not support private proto that not start with tcp SYN flag
-func (l *Listener) Accept() (sockit.RawConn, error) {
+func (l *Listener) Accept() (rawsock.RawConn, error) {
 	var min, max = itcp.SizeRange(l.addr.Addr().Is4())
 
 	var ip = make([]byte, max)
@@ -189,10 +189,10 @@ type Conn struct {
 	closeErr atomic.Pointer[error]
 }
 
-var _ sockit.RawConn = (*Conn)(nil)
+var _ rawsock.RawConn = (*Conn)(nil)
 
-func Connect(laddr, raddr netip.AddrPort, opts ...sockit.Option) (*Conn, error) {
-	cfg := sockit.Options(opts...)
+func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error) {
+	cfg := rawsock.Options(opts...)
 	var c = newConnect(
 		itcp.ID{Local: laddr, Remote: raddr, ISN: 0},
 		nil, cfg.CtxPeriod,
@@ -218,7 +218,7 @@ func newConnect(id itcp.ID, closeCall itcp.CloseCallback, ctxPeriod time.Duratio
 	}
 }
 
-func (c *Conn) init(cfg *sockit.Config) (err error) {
+func (c *Conn) init(cfg *rawsock.Config) (err error) {
 	table, err := route.GetTable()
 	if err != nil {
 		return err

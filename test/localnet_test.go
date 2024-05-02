@@ -3,7 +3,7 @@ package test_test
 import (
 	"testing"
 
-	"github.com/lysShub/sockit/test"
+	"github.com/lysShub/rawsock/test"
 )
 
 func Test_DefaultGateway(t *testing.T) {

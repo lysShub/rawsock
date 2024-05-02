@@ -16,12 +16,12 @@ import (
 	"github.com/lysShub/netkit/errorx"
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/netkit/route"
-	"github.com/lysShub/sockit"
-	"github.com/lysShub/sockit/helper/ipstack"
-	iconn "github.com/lysShub/sockit/internal"
-	itcp "github.com/lysShub/sockit/tcp/internal"
-	"github.com/lysShub/sockit/test"
-	"github.com/lysShub/sockit/test/debug"
+	"github.com/lysShub/rawsock"
+	"github.com/lysShub/rawsock/helper/ipstack"
+	iconn "github.com/lysShub/rawsock/internal"
+	itcp "github.com/lysShub/rawsock/tcp/internal"
+	"github.com/lysShub/rawsock/test"
+	"github.com/lysShub/rawsock/test/debug"
 	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
@@ -42,7 +42,7 @@ type Listener struct {
 	// todo: inject P1
 
 	addr netip.AddrPort
-	cfg  *sockit.Config
+	cfg  *rawsock.Config
 
 	tcp windows.Handle
 
@@ -56,17 +56,17 @@ type Listener struct {
 	closeErr atomic.Pointer[error]
 }
 
-var _ sockit.Listener = (*Listener)(nil)
+var _ rawsock.Listener = (*Listener)(nil)
 
-func Listen(laddr netip.AddrPort, opts ...sockit.Option) (*Listener, error) {
+func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 	var l = &Listener{
-		cfg:   sockit.Options(opts...),
+		cfg:   rawsock.Options(opts...),
 		conns: make(map[itcp.ID]struct{}, 16),
 	}
 
 	// usaully should listen on all nic, but we juse listen on default nic
 	if laddr.Addr().IsUnspecified() {
-		laddr = netip.AddrPortFrom(sockit.LocalAddr(), laddr.Port())
+		laddr = netip.AddrPortFrom(rawsock.LocalAddr(), laddr.Port())
 	}
 
 	var err error
@@ -98,8 +98,8 @@ func Listen(laddr netip.AddrPort, opts ...sockit.Option) (*Listener, error) {
 }
 
 // set divert priority, for Listen will use p and p+1
-func Priority(p int16) sockit.Option {
-	return func(c *sockit.Config) {
+func Priority(p int16) rawsock.Option {
+	return func(c *rawsock.Config) {
 		c.DivertPriorty = p
 	}
 }
@@ -127,7 +127,7 @@ func (l *Listener) close(cause error) error {
 
 func (l *Listener) Addr() netip.AddrPort { return l.addr }
 
-func (l *Listener) Accept() (sockit.RawConn, error) {
+func (l *Listener) Accept() (rawsock.RawConn, error) {
 	var min, max = itcp.SizeRange(l.addr.Addr().Is4())
 	var addr divert.Address
 
@@ -214,7 +214,7 @@ var outboundAddr = func() *divert.Address {
 	return addr
 }()
 
-var _ sockit.RawConn = (*Conn)(nil)
+var _ rawsock.RawConn = (*Conn)(nil)
 
 func (c *Conn) close(cause error) error {
 	if c.closeErr.CompareAndSwap(nil, &net.ErrClosed) {
@@ -244,8 +244,8 @@ func (c *Conn) close(cause error) error {
 	return *c.closeErr.Load()
 }
 
-func Connect(laddr, raddr netip.AddrPort, opts ...sockit.Option) (*Conn, error) {
-	cfg := sockit.Options(opts...)
+func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error) {
+	cfg := rawsock.Options(opts...)
 
 	table, err := route.GetTable()
 	if err != nil {
@@ -301,7 +301,7 @@ func newConnect(id itcp.ID, loopback bool, ifIdx int, closeCall itcp.CloseCallba
 	return conn
 }
 
-func (c *Conn) init(cfg *sockit.Config) (err error) {
+func (c *Conn) init(cfg *rawsock.Config) (err error) {
 	var filter string
 	if c.loopback {
 		// loopback recv as outbound packet, so raddr is localAddr laddr is remoteAddr

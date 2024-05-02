@@ -1,6 +1,6 @@
 # building...
 
-# sockit
+# rawsock
 
 **golang transport layer(raw) socket read/write and kits.**
 

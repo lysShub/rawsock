@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/lysShub/netkit/packet"
-	"github.com/lysShub/sockit/helper/ipstack"
-	"github.com/lysShub/sockit/test"
+	"github.com/lysShub/rawsock/helper/ipstack"
+	"github.com/lysShub/rawsock/test"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"

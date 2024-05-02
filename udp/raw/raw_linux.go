@@ -15,19 +15,19 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 
 	"github.com/lysShub/netkit/packet"
-	"github.com/lysShub/sockit"
-	"github.com/lysShub/sockit/helper/bpf"
-	"github.com/lysShub/sockit/helper/ipstack"
-	iconn "github.com/lysShub/sockit/internal"
-	"github.com/lysShub/sockit/test"
-	"github.com/lysShub/sockit/test/debug"
+	"github.com/lysShub/rawsock"
+	"github.com/lysShub/rawsock/helper/bpf"
+	"github.com/lysShub/rawsock/helper/ipstack"
+	iconn "github.com/lysShub/rawsock/internal"
+	"github.com/lysShub/rawsock/test"
+	"github.com/lysShub/rawsock/test/debug"
 	"github.com/pkg/errors"
 )
 
 // todo: Listener maybe user-route
 
-func Connect(laddr, raddr netip.AddrPort, opts ...sockit.Option) (*Conn, error) {
-	cfg := sockit.Options(opts...)
+func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error) {
+	cfg := rawsock.Options(opts...)
 
 	if l, err := iconn.DefaultLocal(laddr.Addr(), raddr.Addr()); err != nil {
 		return nil, errors.WithStack(err)
@@ -60,7 +60,7 @@ type Conn struct {
 	closeErr atomic.Pointer[error]
 }
 
-var _ sockit.RawConn = (*Conn)(nil)
+var _ rawsock.RawConn = (*Conn)(nil)
 
 func (c *Conn) close(cause error) error {
 	if c.closeErr.CompareAndSwap(nil, &net.ErrClosed) {
@@ -86,7 +86,7 @@ func (c *Conn) close(cause error) error {
 func newConnect(laddr, raddr netip.AddrPort, ctxPeriod time.Duration) *Conn {
 	return &Conn{laddr: laddr, raddr: raddr, ctxPeriod: ctxPeriod}
 }
-func (c *Conn) init(cfg *sockit.Config) (err error) {
+func (c *Conn) init(cfg *rawsock.Config) (err error) {
 	if c.raw, err = net.DialIP(
 		"ip:udp",
 		&net.IPAddr{IP: c.laddr.Addr().AsSlice()},

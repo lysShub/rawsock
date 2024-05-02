@@ -12,9 +12,9 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/lysShub/netkit/packet"
-	"github.com/lysShub/sockit"
-	"github.com/lysShub/sockit/helper/ipstack"
-	"github.com/lysShub/sockit/test/debug"
+	"github.com/lysShub/rawsock"
+	"github.com/lysShub/rawsock/helper/ipstack"
+	"github.com/lysShub/rawsock/test/debug"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
@@ -119,16 +119,16 @@ func (p *Pcap) WriteIP(ip []byte) error {
 }
 
 type PcapWrap struct {
-	sockit.RawConn
+	rawsock.RawConn
 	pcap    *Pcap
 	ipstack *ipstack.IPStack
 }
 
-var _ sockit.RawConn = (*PcapWrap)(nil)
+var _ rawsock.RawConn = (*PcapWrap)(nil)
 
 // WrapPcap wrap a RawConn for capture packets
 // NOTICE: write packet's ip header is mocked
-func WrapPcap(child sockit.RawConn, file string) (*PcapWrap, error) {
+func WrapPcap(child rawsock.RawConn, file string) (*PcapWrap, error) {
 	s, err := ipstack.New(
 		child.LocalAddr().Addr(),
 		child.RemoteAddr().Addr(),

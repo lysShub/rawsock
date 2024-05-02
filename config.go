@@ -1,9 +1,9 @@
-package sockit
+package rawsock
 
 import (
 	"time"
 
-	"github.com/lysShub/sockit/helper/ipstack"
+	"github.com/lysShub/rawsock/helper/ipstack"
 )
 
 type Config struct {

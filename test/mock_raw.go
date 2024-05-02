@@ -11,8 +11,8 @@ import (
 
 	"github.com/lysShub/netkit/errorx"
 	"github.com/lysShub/netkit/packet"
-	"github.com/lysShub/sockit"
-	"github.com/lysShub/sockit/helper/ipstack"
+	"github.com/lysShub/rawsock"
+	"github.com/lysShub/rawsock/helper/ipstack"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -38,7 +38,7 @@ type pack struct {
 }
 
 type options struct {
-	*sockit.Config
+	*rawsock.Config
 
 	validAddr     bool
 	validChecksum bool
@@ -47,7 +47,7 @@ type options struct {
 }
 
 var defaultOptions = options{
-	Config: sockit.Options(),
+	Config: rawsock.Options(),
 
 	validAddr:     false,
 	validChecksum: false,
@@ -57,9 +57,9 @@ var defaultOptions = options{
 
 type Option func(*options)
 
-func RawOpts(opts ...sockit.Option) Option {
+func RawOpts(opts ...rawsock.Option) Option {
 	return func(o *options) {
-		o.Config = sockit.Options(opts...)
+		o.Config = rawsock.Options(opts...)
 	}
 }
 
@@ -144,7 +144,7 @@ func NewMockRaw(
 	return client, server
 }
 
-var _ sockit.RawConn = (*MockRaw)(nil)
+var _ rawsock.RawConn = (*MockRaw)(nil)
 
 func (r *MockRaw) Close() error {
 	select {
@@ -240,14 +240,14 @@ func (r *MockRaw) loss() bool {
 
 type MockListener struct {
 	addr netip.AddrPort
-	raws chan sockit.RawConn
+	raws chan rawsock.RawConn
 
 	closed atomic.Bool
 }
 
-var _ sockit.Listener = (*MockListener)(nil)
+var _ rawsock.Listener = (*MockListener)(nil)
 
-func NewMockListener(t require.TestingT, raws ...sockit.RawConn) *MockListener {
+func NewMockListener(t require.TestingT, raws ...rawsock.RawConn) *MockListener {
 	var addr = raws[0].LocalAddr()
 	for _, e := range raws {
 		require.Equal(t, addr, e.LocalAddr())
@@ -255,7 +255,7 @@ func NewMockListener(t require.TestingT, raws ...sockit.RawConn) *MockListener {
 
 	var l = &MockListener{
 		addr: addr,
-		raws: make(chan sockit.RawConn, len(raws)),
+		raws: make(chan rawsock.RawConn, len(raws)),
 	}
 	for _, e := range raws {
 		l.raws <- e
@@ -263,7 +263,7 @@ func NewMockListener(t require.TestingT, raws ...sockit.RawConn) *MockListener {
 	return l
 }
 
-func (l *MockListener) Accept() (sockit.RawConn, error) {
+func (l *MockListener) Accept() (rawsock.RawConn, error) {
 	raw, ok := <-l.raws
 	if !ok || l.closed.Load() {
 		return nil, net.ErrClosed

@@ -15,21 +15,21 @@ import (
 
 	"github.com/lysShub/netkit/errorx"
 	"github.com/lysShub/netkit/packet"
-	"github.com/lysShub/sockit"
-	iconn "github.com/lysShub/sockit/internal"
-	itcp "github.com/lysShub/sockit/tcp/internal"
+	"github.com/lysShub/rawsock"
+	iconn "github.com/lysShub/rawsock/internal"
+	itcp "github.com/lysShub/rawsock/tcp/internal"
 	"github.com/pkg/errors"
 
-	"github.com/lysShub/sockit/helper/bpf"
-	"github.com/lysShub/sockit/helper/ipstack"
-	"github.com/lysShub/sockit/test"
-	"github.com/lysShub/sockit/test/debug"
+	"github.com/lysShub/rawsock/helper/bpf"
+	"github.com/lysShub/rawsock/helper/ipstack"
+	"github.com/lysShub/rawsock/test"
+	"github.com/lysShub/rawsock/test/debug"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 type Listener struct {
 	addr netip.AddrPort
-	cfg  *sockit.Config
+	cfg  *rawsock.Config
 
 	tcp *net.TCPListener
 
@@ -42,18 +42,18 @@ type Listener struct {
 	closeErr atomic.Pointer[error]
 }
 
-var _ sockit.Listener = (*Listener)(nil)
+var _ rawsock.Listener = (*Listener)(nil)
 
-func Listen(laddr netip.AddrPort, opts ...sockit.Option) (*Listener, error) {
+func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 	var l = &Listener{
-		cfg:   sockit.Options(opts...),
+		cfg:   rawsock.Options(opts...),
 		conns: make(map[itcp.ID]struct{}, 16),
 	}
 	var err error
 
 	// usaully should listen on all nic, but we juse listen on default nic
 	if laddr.Addr().IsUnspecified() {
-		laddr = netip.AddrPortFrom(sockit.LocalAddr(), laddr.Port())
+		laddr = netip.AddrPortFrom(rawsock.LocalAddr(), laddr.Port())
 	}
 
 	l.tcp, l.addr, err = iconn.ListenLocal(laddr, l.cfg.UsedPort)
@@ -106,7 +106,7 @@ func (l *Listener) close(cause error) error {
 }
 
 // todo: not support private proto that not start with tcp SYN flag
-func (l *Listener) Accept() (sockit.RawConn, error) {
+func (l *Listener) Accept() (rawsock.RawConn, error) {
 	var min, max = itcp.SizeRange(l.addr.Addr().Is4())
 
 	var ip = make([]byte, max)
@@ -184,10 +184,10 @@ type Conn struct {
 	closeErr atomic.Pointer[error]
 }
 
-var _ sockit.RawConn = (*Conn)(nil)
+var _ rawsock.RawConn = (*Conn)(nil)
 
-func Connect(laddr, raddr netip.AddrPort, opts ...sockit.Option) (*Conn, error) {
-	cfg := sockit.Options(opts...)
+func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error) {
+	cfg := rawsock.Options(opts...)
 
 	if l, err := iconn.DefaultLocal(laddr.Addr(), raddr.Addr()); err != nil {
 		return nil, errors.WithStack(err)
@@ -220,7 +220,7 @@ func newConnect(id itcp.ID, closeCall itcp.CloseCallback, ctxPeriod time.Duratio
 	}
 }
 
-func (c *Conn) init(cfg *sockit.Config) (err error) {
+func (c *Conn) init(cfg *rawsock.Config) (err error) {
 	if c.raw, err = net.DialIP(
 		"ip:tcp",
 		&net.IPAddr{IP: c.Local.Addr().AsSlice(), Zone: c.Local.Addr().Zone()},

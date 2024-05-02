@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package sockit
+package rawsock
 
 import (
 	"net"

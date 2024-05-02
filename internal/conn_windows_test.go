@@ -1,14 +1,14 @@
 //go:build windows
 // +build windows
 
-package sockit_test
+package rawsock_test
 
 import (
 	"net/netip"
 	"testing"
 
-	conni "github.com/lysShub/sockit/internal"
-	"github.com/lysShub/sockit/test"
+	conni "github.com/lysShub/rawsock/internal"
+	"github.com/lysShub/rawsock/test"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"

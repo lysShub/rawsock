@@ -6,14 +6,14 @@ package tcp
 import (
 	"net/netip"
 
-	"github.com/lysShub/sockit"
-	"github.com/lysShub/sockit/tcp/raw"
+	"github.com/lysShub/rawsock"
+	"github.com/lysShub/rawsock/tcp/raw"
 )
 
-func Listen(laddr netip.AddrPort, opts ...sockit.Option) (sockit.Listener, error) {
+func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (rawsock.Listener, error) {
 	return raw.Listen(laddr, opts...)
 }
 
-func Connect(laddr, raddr netip.AddrPort, opts ...sockit.Option) (sockit.RawConn, error) {
+func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (rawsock.RawConn, error) {
 	return raw.Connect(laddr, raddr, opts...)
 }

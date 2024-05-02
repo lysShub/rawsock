@@ -17,9 +17,9 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/lysShub/netkit/packet"
-	"github.com/lysShub/sockit"
-	"github.com/lysShub/sockit/test"
-	"github.com/lysShub/sockit/test/debug"
+	"github.com/lysShub/rawsock"
+	"github.com/lysShub/rawsock/test"
+	"github.com/lysShub/rawsock/test/debug"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -265,7 +265,7 @@ func Test_Context(t *testing.T) {
 	)
 
 	const period = time.Millisecond * 100
-	tcp, err := Connect(caddr, saddr, sockit.CtxPeriod(period))
+	tcp, err := Connect(caddr, saddr, rawsock.CtxPeriod(period))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())

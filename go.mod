@@ -1,4 +1,4 @@
-module github.com/lysShub/sockit
+module github.com/lysShub/rawsock
 
 go 1.21
 

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lysShub/sockit/test"
+	"github.com/lysShub/rawsock/test"
 	"github.com/stretchr/testify/require"
 )
 
