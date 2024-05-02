@@ -36,16 +36,6 @@ func calcChecksum() func(ip header.IPv4) header.IPv4 {
 		calcTrans = true
 	)
 	return func(ip header.IPv4) header.IPv4 {
-		var t header.Transport
-		switch ip.TransportProtocol() {
-		case header.TCPProtocolNumber:
-			t = header.TCP(ip.Payload())
-		case header.UDPProtocolNumber:
-			t = header.UDP(ip.Payload())
-		default:
-			panic("")
-		}
-
 		if first {
 			calcIP = !ip.IsChecksumValid()
 
@@ -53,31 +43,42 @@ func calcChecksum() func(ip header.IPv4) header.IPv4 {
 				ip.TransportProtocol(),
 				ip.SourceAddress(),
 				ip.DestinationAddress(),
-				uint16(len(ip)-int(ip.HeaderLength())),
+				ip.PayloadLength(),
 			)
 			calcTrans = checksum.Checksum(ip.Payload(), psum) != 0xffff
 			first = false
 		}
 
-		if calcIP {
-			ip.SetChecksum(0)
-			s := checksum.Checksum(ip[:ip.HeaderLength()], 0)
-			ip.SetChecksum(^s)
-		}
-
-		if calcTrans {
-			t.SetChecksum(0)
-			psum := header.PseudoHeaderChecksum(
-				ip.TransportProtocol(),
-				ip.SourceAddress(),
-				ip.DestinationAddress(),
-				uint16(len(ip)-int(ip.HeaderLength())),
-			)
-			sum := checksum.Checksum(ip.Payload(), psum)
-			t.SetChecksum(^sum)
+		if calcIP || calcTrans {
+			CalcChecksum(ip)
 		}
 		return ip
 	}
+}
+
+func CalcChecksum(ip header.IPv4) {
+	ip.SetChecksum(0)
+	ip.SetChecksum(^ip.CalculateChecksum())
+
+	psum := header.PseudoHeaderChecksum(
+		ip.TransportProtocol(),
+		ip.SourceAddress(),
+		ip.DestinationAddress(),
+		ip.PayloadLength(),
+	)
+	switch ip.TransportProtocol() {
+	case header.TCPProtocolNumber:
+		tcp := header.TCP(ip.Payload())
+		tcp.SetChecksum(0)
+		tcp.SetChecksum(^checksum.Checksum(tcp, psum))
+	case header.UDPProtocolNumber:
+		udp := header.UDP(ip.Payload())
+		udp.SetChecksum(0)
+		udp.SetChecksum(^checksum.Checksum(udp, psum))
+	default:
+		panic("")
+	}
+
 }
 
 func BuildTCPSync(t require.TestingT, laddr, raddr netip.AddrPort) header.TCP {
@@ -336,16 +337,16 @@ func NewUstack(t require.TestingT, addr netip.Addr, handleLocal bool) *ustack {
 func ValidPingPongConn(t require.TestingT, s *rand.Rand, conn net.Conn, size int, udpMss ...int) {
 	var buf chan []byte
 	if len(udpMss) == 0 { // udp
-		udpMss = append(udpMss, 1536)
+		udpMss = append(udpMss, 1024)
 		buf = make(chan []byte, 1) // avoid write too fast, udp drop direct
 	} else {
 		buf = make(chan []byte, 16)
 	}
-	defer close(buf)
 
 	var ctx, cancel = context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	go func() {
+		defer close(buf)
 		for i := 0; i < size; {
 			b := make([]byte, min(s.Int()%udpMss[0], size-i))
 			s.Read(b)

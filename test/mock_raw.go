@@ -169,7 +169,8 @@ func (r *MockRaw) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	case p = <-r.in:
 	}
 	if d := time.Since(p.t); d < r.delay {
-		time.Sleep(r.delay - d)
+		dur := r.delay - d
+		time.Sleep(max(dur, 0))
 	}
 
 	pkt.SetData(0)

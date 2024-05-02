@@ -229,6 +229,9 @@ func (c *Conn) init(cfg *conn.Config) (err error) {
 		return err
 	}
 
+	// todo: if loopback, should set tso/gso:
+	//   ethtool -K lo tcp-segmentation-offload off
+	//   ethtool -K lo generic-segmentation-offload off
 	if err = iconn.SetGRO(
 		c.Local.Addr(), c.Remote.Addr(), cfg.GRO,
 	); err != nil {
@@ -309,14 +312,14 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	}
 	pkt.SetData(n)
 
-	hdr, err := iconn.ValidComplete(pkt.Bytes())
+	hdrLen, err := iconn.ValidComplete(pkt.Bytes())
 	if err != nil {
 		return err
 	}
 	if debug.Debug() {
 		test.ValidIP(test.T(), pkt.Bytes())
 	}
-	pkt.SetHead(pkt.Head() + int(hdr))
+	pkt.SetHead(pkt.Head() + int(hdrLen))
 	return nil
 }
 

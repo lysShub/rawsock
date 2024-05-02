@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,56 +26,112 @@ import (
 )
 
 func Test_Raw_Listen(t *testing.T) {
-	t.Run("accept-once", func(t *testing.T) {
-		var (
-			addr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
-			cnt  atomic.Uint32
-		)
+	t.Run("loopback", func(t *testing.T) {
+		// todo: if loopback, should set tso/gso:
+		//   ethtool -K lo tcp-segmentation-offload off
+		//   ethtool -K lo generic-segmentation-offload off
 
+		var (
+			saddr  = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+			caddrs = []netip.AddrPort{
+				netip.AddrPortFrom(test.LocIP(), test.RandPort()),
+				netip.AddrPortFrom(test.LocIP(), test.RandPort()),
+				netip.AddrPortFrom(test.LocIP(), test.RandPort()),
+			}
+			cnt atomic.Uint32
+		)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		eg, ctx := errgroup.WithContext(ctx)
 
-		// system tcp dial will retransmit SYN packet
-		eg.Go(func() error {
-			time.Sleep(time.Second)
-			_, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr.String())
-			require.Error(t, err)
-			return nil
-		})
-		eg.Go(func() error {
-			time.Sleep(time.Second)
-			_, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr.String())
-			require.Error(t, err)
-			return nil
-		})
+		for _, caddr := range caddrs {
+			addr := caddr
+			eg.Go(func() error {
+				time.Sleep(time.Second)
+
+				_, err := net.DialTCP("tcp", test.TCPAddr(addr), test.TCPAddr(saddr))
+				require.True(t, errors.Is(err, unix.ECONNREFUSED))
+				return nil
+			})
+		}
 
 		eg.Go(func() error {
-			l, err := Listen(addr)
+			l, err := Listen(saddr)
 			require.NoError(t, err)
 			defer l.Close()
 			context.AfterFunc(ctx, func() { l.Close() })
 
-			for {
+			for cnt.Load() < 3 {
 				conn, err := l.Accept()
 				if errors.Is(err, net.ErrClosed) {
 					return nil
 				}
 				require.NoError(t, err)
-				conn.Close()
+				conn.Close() // todo: accept it
+
+				require.True(t, slices.Contains(caddrs, conn.RemoteAddr()))
 				cnt.Add(1)
 			}
+			return nil
 		})
 
-		time.Sleep(time.Second * 4)
-		cancel()
-		eg.Wait()
-
-		require.Equal(t, uint32(2), cnt.Load())
+		time.Sleep(time.Second)
+		err := eg.Wait()
+		require.NoError(t, err)
 	})
 }
 
+func Test_AcceptOnce(t *testing.T) {
+	// only accept once for multiple packets with the same ISN in a period of time
+	var (
+		addr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
+		cnt  atomic.Uint32
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	eg, ctx := errgroup.WithContext(ctx)
+
+	// system tcp dial will retransmit SYN packet
+	eg.Go(func() error {
+		time.Sleep(time.Second)
+		_, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr.String())
+		require.Error(t, err)
+		return nil
+	})
+	eg.Go(func() error {
+		time.Sleep(time.Second)
+		_, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr.String())
+		require.Error(t, err)
+		return nil
+	})
+
+	eg.Go(func() error {
+		l, err := Listen(addr)
+		require.NoError(t, err)
+		defer l.Close()
+		context.AfterFunc(ctx, func() { l.Close() })
+
+		for {
+			conn, err := l.Accept()
+			if errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			require.NoError(t, err)
+			conn.Close()
+			cnt.Add(1)
+		}
+	})
+
+	time.Sleep(time.Second * 4)
+	cancel()
+	eg.Wait()
+
+	require.Equal(t, uint32(2), cnt.Load())
+}
+
 func Test_Connect(t *testing.T) {
+
 	t.Run("loopback", func(t *testing.T) {
 		// todo: maybe checksum offload?
 		monkey.Patch(debug.Debug, func() bool { return false })
@@ -122,7 +179,7 @@ func Test_Connect(t *testing.T) {
 
 		err = eg.Wait()
 		ok := errors.Is(err, unix.ECONNRESET) || // todo: why gvisor send RST?
-			errors.Is(err, io.EOF)
+			errors.Is(err, io.EOF) || err == nil
 		require.True(t, ok)
 	})
 
@@ -173,7 +230,7 @@ func Test_Connect(t *testing.T) {
 
 		err = eg.Wait()
 		ok := errors.Is(err, unix.ECONNRESET) ||
-			errors.Is(err, io.EOF)
+			errors.Is(err, io.EOF) || err == nil
 		require.True(t, ok)
 	})
 }
