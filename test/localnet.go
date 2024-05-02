@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/lysShub/sockit/route"
+	"github.com/lysShub/netkit/route"
 	"github.com/mdlayher/arp"
 	"github.com/stretchr/testify/require"
 )

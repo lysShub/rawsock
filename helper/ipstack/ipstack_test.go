@@ -5,8 +5,8 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/sockit/helper/ipstack"
-	"github.com/lysShub/sockit/packet"
 	"github.com/lysShub/sockit/test"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
