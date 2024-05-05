@@ -170,7 +170,10 @@ func (l *Listener) Accept() (rawsock.RawConn, error) {
 				l.deleteConn,
 			)
 
-			return conn, conn.init(l.cfg)
+			if err := conn.init(l.cfg); err != nil {
+				return nil, conn.close(err)
+			}
+			return conn, nil
 			// todo: inject P1
 		}
 	}
@@ -319,7 +322,6 @@ func (c *Conn) init(cfg *rawsock.Config) (err error) {
 
 	// todo: divert support ctxPeriod option
 	if c.raw, err = divert.Open(filter, divert.Network, cfg.DivertPriorty, 0); err != nil {
-		c.Close()
 		return err
 	}
 
@@ -350,7 +352,7 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 		return err
 	}
 	if debug.Debug() {
-		test.ValidIP(test.T(), pkt.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 	pkt.SetHead(pkt.Head() + int(hdr))
 	return nil
@@ -359,7 +361,7 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 func (c *Conn) Write(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Bytes())
+		test.ValidIP(test.P(), p.Bytes())
 	}
 
 	// todo: ctx
@@ -371,7 +373,7 @@ func (c *Conn) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachInbound(p)
 
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Bytes())
+		test.ValidIP(test.P(), p.Bytes())
 	}
 
 	_, err = c.raw.Send(p.Bytes(), c.injectAddr)

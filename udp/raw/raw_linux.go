@@ -147,7 +147,7 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 		return err
 	}
 	if debug.Debug() {
-		test.ValidIP(test.T(), pkt.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 	pkt.SetHead(pkt.Head() + int(hdrLen))
 	return nil
@@ -159,7 +159,7 @@ func (c *Conn) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 func (c *Conn) Inject(ctx context.Context, pkt *packet.Packet) (err error) {
 	c.ipstack.AttachInbound(pkt)
 	if debug.Debug() {
-		test.ValidIP(test.T(), pkt.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 	_, err = c.raw.Write(pkt.Bytes())
 	return err

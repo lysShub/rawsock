@@ -190,11 +190,10 @@ func SetGRO(local, remote netip.Addr, gro bool) error {
 
 	// todo: support rx-gro-hw
 	// ethtool --offload eth0 rx-gro-hw off
-	out, err := exec.Command("ethtool", "--offload", name, "rx-gro-hw", "off").CombinedOutput()
-	if err != nil {
-		return err
-	} else if len(out) > 0 {
-		return errors.Errorf("exec ethtool disable rx-gro-hw: %s", string(out))
+	cmd := exec.Command("ethtool", "--offload", name, "rx-gro-hw", "off")
+	out, err := cmd.CombinedOutput()
+	if err != nil || len(out) > 0 {
+		return errors.Errorf(`exec "%s", error: %s, message: %s`, cmd.String(), err, string(out))
 	}
 
 	return netcall.IoctlGRO(name, gro)
