@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package rawsock
+package bind
 
 import (
 	"net"

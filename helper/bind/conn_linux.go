@@ -1,7 +1,7 @@
 //go:build linux
 // +build linux
 
-package rawsock
+package bind
 
 import (
 	"net"

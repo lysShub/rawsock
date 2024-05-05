@@ -18,8 +18,9 @@ import (
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/netkit/route"
 	"github.com/lysShub/rawsock"
+	helper "github.com/lysShub/rawsock/helper"
+	"github.com/lysShub/rawsock/helper/bind"
 	"github.com/lysShub/rawsock/helper/ipstack"
-	iconn "github.com/lysShub/rawsock/internal"
 	itcp "github.com/lysShub/rawsock/tcp/internal"
 	"github.com/lysShub/rawsock/test"
 	"golang.org/x/sys/windows"
@@ -70,7 +71,7 @@ func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 	}
 
 	var err error
-	l.tcp, l.addr, err = iconn.BindLocal(header.TCPProtocolNumber, laddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = bind.BindLocal(header.TCPProtocolNumber, laddr, l.cfg.UsedPort)
 	if err != nil {
 		l.Close()
 		return nil, err
@@ -274,7 +275,7 @@ func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error)
 		}
 	}
 
-	tcp, laddr, err := iconn.BindLocal(header.TCPProtocolNumber, laddr, cfg.UsedPort)
+	tcp, laddr, err := bind.BindLocal(header.TCPProtocolNumber, laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +348,7 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	}
 
 	pkt.SetData(n)
-	hdr, err := iconn.ValidComplete(pkt.Bytes())
+	hdr, err := helper.IntegrityCheck(pkt.Bytes())
 	if err != nil {
 		return err
 	}
