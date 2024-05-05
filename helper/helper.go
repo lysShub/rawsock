@@ -1,7 +1,6 @@
-package rawsock
+package helper
 
 import (
-	"fmt"
 	"net/netip"
 	"syscall"
 
@@ -12,7 +11,7 @@ import (
 )
 
 // todo: set MSG_TRUNC flag
-func ValidComplete(ip []byte) (iphdrsize uint8, err error) {
+func IntegrityCheck(ip []byte) (iphdrsize uint8, err error) {
 	switch header.IPVersion(ip) {
 	case 4:
 		hdr := header.IPv4(ip)
@@ -31,13 +30,7 @@ func ValidComplete(ip []byte) (iphdrsize uint8, err error) {
 	return 0, errors.New("invalid ip packet")
 }
 
-type ErrNotUsedPort int
-
-func (e ErrNotUsedPort) Error() string {
-	return fmt.Sprintf("port %d not bind", int(e))
-}
-
-// DefaultLocal alloc ip addr for deault-local-addr
+// DefaultLocal alloc deault local-addr by remote-addr
 func DefaultLocal(laddr, raddr netip.Addr) (netip.Addr, error) {
 	if !laddr.IsUnspecified() {
 		return laddr, nil

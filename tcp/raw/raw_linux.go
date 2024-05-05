@@ -16,7 +16,8 @@ import (
 	"github.com/lysShub/netkit/errorx"
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/rawsock"
-	iconn "github.com/lysShub/rawsock/internal"
+	"github.com/lysShub/rawsock/helper"
+	"github.com/lysShub/rawsock/helper/bind"
 	itcp "github.com/lysShub/rawsock/tcp/internal"
 	"github.com/pkg/errors"
 
@@ -56,7 +57,7 @@ func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 		laddr = netip.AddrPortFrom(rawsock.LocalAddr(), laddr.Port())
 	}
 
-	l.tcp, l.addr, err = iconn.ListenLocal(laddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = bind.ListenLocal(laddr, l.cfg.UsedPort)
 	if err != nil {
 		return nil, l.close(err)
 	}
@@ -189,13 +190,13 @@ var _ rawsock.RawConn = (*Conn)(nil)
 func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error) {
 	cfg := rawsock.Options(opts...)
 
-	if l, err := iconn.DefaultLocal(laddr.Addr(), raddr.Addr()); err != nil {
+	if l, err := helper.DefaultLocal(laddr.Addr(), raddr.Addr()); err != nil {
 		return nil, errors.WithStack(err)
 	} else {
 		laddr = netip.AddrPortFrom(l, laddr.Port())
 	}
 
-	tcp, laddr, err := iconn.ListenLocal(laddr, cfg.UsedPort)
+	tcp, laddr, err := bind.ListenLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, err
 	}
@@ -229,10 +230,11 @@ func (c *Conn) init(cfg *rawsock.Config) (err error) {
 		return err
 	}
 
+	// todo: set nic offload should be options, some option can't be update: rx-gro-hw: on [fixed]
 	// todo: if loopback, should set tso/gso:
 	//   ethtool -K lo tcp-segmentation-offload off
 	//   ethtool -K lo generic-segmentation-offload off
-	if err = iconn.SetGRO(
+	if err = bind.SetGRO(
 		c.Local.Addr(), c.Remote.Addr(), cfg.GRO,
 	); err != nil {
 		return err
@@ -312,12 +314,12 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	}
 	pkt.SetData(n)
 
-	hdrLen, err := iconn.ValidComplete(pkt.Bytes())
+	hdrLen, err := helper.IntegrityCheck(pkt.Bytes())
 	if err != nil {
 		return err
 	}
 	if debug.Debug() {
-		test.ValidIP(test.T(), pkt.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 	pkt.SetHead(pkt.Head() + int(hdrLen))
 	return nil
@@ -331,7 +333,7 @@ func (c *Conn) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 func (c *Conn) Inject(ctx context.Context, pkt *packet.Packet) (err error) {
 	c.ipstack.AttachInbound(pkt)
 	if debug.Debug() {
-		test.ValidIP(test.T(), pkt.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 	_, err = c.raw.Write(pkt.Bytes())
 	return err

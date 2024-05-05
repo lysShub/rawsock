@@ -18,8 +18,9 @@ import (
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/netkit/route"
 	"github.com/lysShub/rawsock"
+	helper "github.com/lysShub/rawsock/helper"
+	"github.com/lysShub/rawsock/helper/bind"
 	"github.com/lysShub/rawsock/helper/ipstack"
-	iconn "github.com/lysShub/rawsock/internal"
 	itcp "github.com/lysShub/rawsock/tcp/internal"
 	"github.com/lysShub/rawsock/test"
 	"golang.org/x/sys/windows"
@@ -70,7 +71,7 @@ func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 	}
 
 	var err error
-	l.tcp, l.addr, err = iconn.BindLocal(header.TCPProtocolNumber, laddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = bind.BindLocal(header.TCPProtocolNumber, laddr, l.cfg.UsedPort)
 	if err != nil {
 		l.Close()
 		return nil, err
@@ -170,7 +171,10 @@ func (l *Listener) Accept() (rawsock.RawConn, error) {
 				l.deleteConn,
 			)
 
-			return conn, conn.init(l.cfg)
+			if err := conn.init(l.cfg); err != nil {
+				return nil, conn.close(err)
+			}
+			return conn, nil
 			// todo: inject P1
 		}
 	}
@@ -271,7 +275,7 @@ func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error)
 		}
 	}
 
-	tcp, laddr, err := iconn.BindLocal(header.TCPProtocolNumber, laddr, cfg.UsedPort)
+	tcp, laddr, err := bind.BindLocal(header.TCPProtocolNumber, laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +323,6 @@ func (c *Conn) init(cfg *rawsock.Config) (err error) {
 
 	// todo: divert support ctxPeriod option
 	if c.raw, err = divert.Open(filter, divert.Network, cfg.DivertPriorty, 0); err != nil {
-		c.Close()
 		return err
 	}
 
@@ -345,12 +348,12 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	}
 
 	pkt.SetData(n)
-	hdr, err := iconn.ValidComplete(pkt.Bytes())
+	hdr, err := helper.IntegrityCheck(pkt.Bytes())
 	if err != nil {
 		return err
 	}
 	if debug.Debug() {
-		test.ValidIP(test.T(), pkt.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 	pkt.SetHead(pkt.Head() + int(hdr))
 	return nil
@@ -359,7 +362,7 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 func (c *Conn) Write(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachOutbound(p)
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Bytes())
+		test.ValidIP(test.P(), p.Bytes())
 	}
 
 	// todo: ctx
@@ -371,7 +374,7 @@ func (c *Conn) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	c.ipstack.AttachInbound(p)
 
 	if debug.Debug() {
-		test.ValidIP(test.T(), p.Bytes())
+		test.ValidIP(test.P(), p.Bytes())
 	}
 
 	_, err = c.raw.Send(p.Bytes(), c.injectAddr)

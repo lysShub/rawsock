@@ -6,7 +6,7 @@ require (
 	bou.ke/monkey v1.0.2
 	github.com/go-ping/ping v1.1.0
 	github.com/google/gopacket v1.1.19
-	github.com/lysShub/divert-go v0.0.0-20240414004500-8a35168a0092
+	github.com/lysShub/divert-go v0.0.0-20240505203543-cdad175fca17
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
 	github.com/mdlayher/packet v1.0.0 // indirect
 	github.com/stretchr/testify v1.9.0

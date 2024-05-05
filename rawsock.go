@@ -6,7 +6,10 @@ import (
 	"net/netip"
 
 	"github.com/lysShub/netkit/packet"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
+
+const Overhead = header.IPv4MinimumSize // todo: ipv6
 
 type Listener interface {
 

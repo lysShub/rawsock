@@ -17,9 +17,10 @@ import (
 	"github.com/lysShub/netkit/debug"
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/rawsock"
+	"github.com/lysShub/rawsock/helper"
+	"github.com/lysShub/rawsock/helper/bind"
 	"github.com/lysShub/rawsock/helper/bpf"
 	"github.com/lysShub/rawsock/helper/ipstack"
-	iconn "github.com/lysShub/rawsock/internal"
 	"github.com/lysShub/rawsock/test"
 	"github.com/pkg/errors"
 )
@@ -29,13 +30,13 @@ import (
 func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error) {
 	cfg := rawsock.Options(opts...)
 
-	if l, err := iconn.DefaultLocal(laddr.Addr(), raddr.Addr()); err != nil {
+	if l, err := helper.DefaultLocal(laddr.Addr(), raddr.Addr()); err != nil {
 		return nil, errors.WithStack(err)
 	} else {
 		laddr = netip.AddrPortFrom(l, laddr.Port())
 	}
 
-	fd, laddr, err := iconn.BindLocal(header.UDPProtocolNumber, laddr, cfg.UsedPort)
+	fd, laddr, err := bind.BindLocal(header.UDPProtocolNumber, laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, err
 	}
@@ -142,12 +143,12 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	}
 	pkt.SetData(n)
 
-	hdrLen, err := iconn.ValidComplete(pkt.Bytes())
+	hdrLen, err := helper.IntegrityCheck(pkt.Bytes())
 	if err != nil {
 		return err
 	}
 	if debug.Debug() {
-		test.ValidIP(test.T(), pkt.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 	pkt.SetHead(pkt.Head() + int(hdrLen))
 	return nil
@@ -159,7 +160,7 @@ func (c *Conn) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 func (c *Conn) Inject(ctx context.Context, pkt *packet.Packet) (err error) {
 	c.ipstack.AttachInbound(pkt)
 	if debug.Debug() {
-		test.ValidIP(test.T(), pkt.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 	_, err = c.raw.Write(pkt.Bytes())
 	return err

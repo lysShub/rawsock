@@ -19,9 +19,10 @@ import (
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/netkit/route"
 	"github.com/lysShub/rawsock"
+	"github.com/lysShub/rawsock/helper"
+	"github.com/lysShub/rawsock/helper/bind"
 	"github.com/lysShub/rawsock/helper/bpf"
 	"github.com/lysShub/rawsock/helper/ipstack"
-	iconn "github.com/lysShub/rawsock/internal"
 	itcp "github.com/lysShub/rawsock/tcp/internal"
 	"github.com/lysShub/rawsock/test"
 	"github.com/mdlayher/arp"
@@ -54,7 +55,7 @@ func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 	}
 
 	var err error
-	l.tcp, l.addr, err = iconn.ListenLocal(laddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = bind.ListenLocal(laddr, l.cfg.UsedPort)
 	if err != nil {
 		return nil, l.close(err)
 	}
@@ -199,7 +200,7 @@ func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error)
 	)
 
 	var err error
-	c.tcp, c.Local, err = iconn.ListenLocal(laddr, cfg.UsedPort)
+	c.tcp, c.Local, err = bind.ListenLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, c.close(err)
 	}
@@ -272,7 +273,7 @@ func (c *Conn) init(cfg *rawsock.Config) (err error) {
 		}
 	}
 
-	if err := iconn.SetGRO(
+	if err := bind.SetGRO(
 		c.Local.Addr(), c.Remote.Addr(), cfg.GRO,
 	); err != nil {
 		return err
@@ -351,12 +352,12 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	}
 	pkt.SetData(n)
 
-	hdr, err := iconn.ValidComplete(pkt.Bytes())
+	hdr, err := helper.IntegrityCheck(pkt.Bytes())
 	if err != nil {
 		return err
 	}
 	if debug.Debug() {
-		test.ValidIP(test.T(), pkt.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 	pkt.SetHead(pkt.Head() + int(hdr))
 	return nil
@@ -365,7 +366,7 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 func (c *Conn) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 	c.ipstack.AttachOutbound(pkt)
 	if debug.Debug() {
-		test.ValidIP(test.T(), pkt.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 
 	err = c.raw.Sendto(pkt.Bytes(), 0, c.gateway)
@@ -373,11 +374,11 @@ func (c *Conn) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 }
 
 func (c *Conn) Inject(ctx context.Context, p *packet.Packet) (err error) {
-	return errors.New("todo: not support, need test")
+	panic(errors.New("todo: not support, need test"))
 
 	// c.ipstack.AttachInbound(p)
 	// if debug.Debug() {
-	// 	test.ValidIP(test.T(), p.Data())
+	// 	test.ValidIP(test.P(), p.Data())
 	// }
 	// // p.Attach(c.outEthdr[:])
 	// _, err = c.raw.Write(p.Data())
