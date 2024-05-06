@@ -3,6 +3,7 @@ package test
 import (
 	"fmt"
 	"os"
+	"sync/atomic"
 
 	"github.com/stretchr/testify/require"
 )
@@ -25,15 +26,23 @@ func (m *mockTest) FailNow() {
 	os.Exit(1)
 }
 
-type printTest struct{}
+type printTest struct {
+	failed atomic.Bool
+}
 
 func P() *printTest { return &printTest{} }
 
 func (m *printTest) Errorf(format string, args ...interface{}) {
+	m.failed.CompareAndSwap(false, true)
 	fmt.Printf(format, args...)
 	fmt.Println()
 }
 
 func (m *printTest) FailNow() {
+	m.failed.CompareAndSwap(false, true)
 	fmt.Println("FailNow")
+}
+
+func (m *printTest) Failed() bool {
+	return m.failed.Load()
 }

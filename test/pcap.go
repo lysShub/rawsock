@@ -2,125 +2,20 @@ package test
 
 import (
 	"context"
-	"os"
-	"sync"
-	"time"
 
 	"github.com/pkg/errors"
 
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
-	"github.com/google/gopacket/pcapgo"
 	"github.com/lysShub/netkit/debug"
 	"github.com/lysShub/netkit/packet"
+	"github.com/lysShub/netkit/pcap"
 	"github.com/lysShub/rawsock"
 	"github.com/lysShub/rawsock/helper/ipstack"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-type Pcap struct {
-	mu   sync.RWMutex
-	path string
-	fh   *os.File
-	w    *pcapgo.Writer
-}
-
-func NewPcap(file string) (*Pcap, error) {
-	fh, err := os.Create(file)
-	if err != nil {
-		return nil, err
-	}
-
-	w := pcapgo.NewWriter(fh)
-	err = w.WriteFileHeader(0xffff, layers.LinkTypeEthernet)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Pcap{
-		path: file,
-		fh:   fh,
-		w:    w,
-	}, nil
-}
-
-func PcapIPs[T []byte | *packet.Packet](file string, ips ...T) error {
-	if len(ips) == 0 {
-		return nil
-	}
-	var ps [][]byte
-	switch ips := any(ips).(type) {
-	case [][]byte:
-		ps = ips
-	case []*packet.Packet:
-		for _, e := range ips {
-			ps = append(ps, e.Bytes())
-		}
-	default:
-		panic("")
-	}
-
-	p, err := NewPcap(file)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	defer p.Close()
-
-	for _, e := range ps {
-		if err := p.WriteIP(e); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (p *Pcap) Close() error { return p.fh.Close() }
-
-func (p *Pcap) write(eth header.Ethernet) error {
-	if debug.Debug() {
-		ValidIP(T(), eth[header.EthernetMinimumSize:])
-	}
-
-	err := p.w.WritePacket(gopacket.CaptureInfo{
-		Timestamp:      time.Now(),
-		CaptureLength:  len(eth),
-		Length:         len(eth),
-		InterfaceIndex: 0,
-	}, eth)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	return nil
-}
-
-func (p *Pcap) Write(eth header.Ethernet) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.write(eth)
-}
-
-func (p *Pcap) WriteIP(ip []byte) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	var eth []byte
-	switch header.IPVersion(ip) {
-	case 4:
-		eth = append(eth,
-			[]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x08, 0x00}...,
-		)
-	case 6:
-		eth = append(eth,
-			[]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x86, 0xdd}...,
-		)
-	}
-	eth = append(eth, ip...)
-
-	return p.write(eth)
-}
-
 type PcapWrap struct {
 	rawsock.RawConn
-	pcap    *Pcap
+	pcap    *pcap.Pcap
 	ipstack *ipstack.IPStack
 }
 
@@ -138,7 +33,7 @@ func WrapPcap(child rawsock.RawConn, file string) (*PcapWrap, error) {
 		return nil, err
 	}
 
-	p, err := NewPcap(file)
+	p, err := pcap.File(file)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -160,20 +55,20 @@ func (w *PcapWrap) Close() (err error) {
 	return err
 }
 
-func (w *PcapWrap) Read(ctx context.Context, p *packet.Packet) (err error) {
-	old := p.Head()
-	err = w.RawConn.Read(ctx, p)
+func (w *PcapWrap) Read(ctx context.Context, pkt *packet.Packet) (err error) {
+	old := pkt.Head()
+	err = w.RawConn.Read(ctx, pkt)
 	if err != nil {
 		return err
 	}
-	new := p.Head()
+	new := pkt.Head()
 
-	p.SetHead(old)
+	pkt.SetHead(old)
 	if debug.Debug() {
-		ValidIP(T(), p.Bytes())
+		ValidIP(T(), pkt.Bytes())
 	}
-	err = w.pcap.WriteIP(p.Bytes())
-	p.SetHead(new)
+	err = w.pcap.WriteIP(pkt.Bytes())
+	pkt.SetHead(new)
 
 	return err
 }

@@ -21,12 +21,10 @@ github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORN
 github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0 h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
-github.com/lysShub/divert-go v0.0.0-20240414004500-8a35168a0092 h1:Z5iqT5I9jwv3QthLG/nbyiU6YtHIV/mifkctCGiUQyw=
-github.com/lysShub/divert-go v0.0.0-20240414004500-8a35168a0092/go.mod h1:iWqZEwCkgY3PZpUFbyvOvErYC9DZv3Tv/SS1glsiIl0=
 github.com/lysShub/divert-go v0.0.0-20240505203543-cdad175fca17 h1:j909G8OCI2J4wzF8c7TFQ9+x45iMuu/1l8NYnxI6YwI=
 github.com/lysShub/divert-go v0.0.0-20240505203543-cdad175fca17/go.mod h1:iWqZEwCkgY3PZpUFbyvOvErYC9DZv3Tv/SS1glsiIl0=
-github.com/lysShub/netkit v0.0.0-20240502161710-8c1530e4591a h1:mfRCbiso+geQNmS1ZSqA7JQ7q4KMwcUdeRrTkgpB1a8=
-github.com/lysShub/netkit v0.0.0-20240502161710-8c1530e4591a/go.mod h1:4CNVZlpQAPCLZ+6ru3+3zIUztLivjjOZf6Qjqkcqo/0=
+github.com/lysShub/netkit v0.0.0-20240506190139-7a1c2f6dc9d7 h1:GJPhFFDV3uaVysFzL5d9IJ1EliJq86n/NYNPJgbQ8kU=
+github.com/lysShub/netkit v0.0.0-20240506190139-7a1c2f6dc9d7/go.mod h1:gf85QV+CR0TmEDMgaTUUhfNxho19GKu5bKIs+Faj8ak=
 github.com/lysShub/wintun-go v0.0.0-20240410130619-383598c11ea1 h1:AV6Pt7nAFy3nvbRX9M8DOZ6gFSTEmq1DUNTIq2QoqeA=
 github.com/lysShub/wintun-go v0.0.0-20240410130619-383598c11ea1/go.mod h1:BCj6kcW5G30wkjtKulTQ83QKZutWuctHTroy+ciTWpI=
 github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875 h1:ql8x//rJsHMjS+qqEag8n3i4azw1QneKh5PieH9UEbY=
@@ -43,6 +41,12 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
+github.com/tidwall/gjson v1.17.1 h1:wlYEnwqAHgzmhNUFfw7Xalt2JzQvsMx2Se4PcoFCT/U=
+github.com/tidwall/gjson v1.17.1/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=
+github.com/tidwall/match v1.1.1 h1:+Ho715JplO36QYgwN9PGYNhgZvoUSc9X2c80KVTi+GA=
+github.com/tidwall/match v1.1.1/go.mod h1:eRSPERbgtNPcGhD8UCthc6PmLEQXEWd3PRB5JTxsfmM=
+github.com/tidwall/pretty v1.2.0 h1:RWIZEg2iJ8/g6fDDYzMpobmaoGh5OLl4AXtGUGPcqCs=
+github.com/tidwall/pretty v1.2.0/go.mod h1:ITEVvHYasfjBbM0u2Pg8T2nJnzm8xPwvNhhsoaGGjNU=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550/go.mod h1:yigFU9vqHzYiE8UmvKecakEJjdnWj3jj499lnFckfCI=
 golang.org/x/lint v0.0.0-20200302205851-738671d3881b/go.mod h1:3xt1FjdF8hUf6vQPIChWIBhFzV8gjjsPE/fR3IyQdNY=

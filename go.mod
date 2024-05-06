@@ -5,7 +5,7 @@ go 1.21
 require (
 	bou.ke/monkey v1.0.2
 	github.com/go-ping/ping v1.1.0
-	github.com/google/gopacket v1.1.19
+	github.com/google/gopacket v1.1.19 // indirect
 	github.com/lysShub/divert-go v0.0.0-20240505203543-cdad175fca17
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
 	github.com/mdlayher/packet v1.0.0 // indirect
@@ -26,7 +26,7 @@ require (
 )
 
 require (
-	github.com/lysShub/netkit v0.0.0-20240502161710-8c1530e4591a
+	github.com/lysShub/netkit v0.0.0-20240506190139-7a1c2f6dc9d7
 	github.com/lysShub/wintun-go v0.0.0-20240410130619-383598c11ea1
 	golang.org/x/sync v0.1.0
 )
