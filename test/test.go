@@ -205,6 +205,36 @@ func BuildRawTCP(t require.TestingT, laddr, raddr netip.AddrPort, payload []byte
 	)
 
 	return b
+
+	/*
+		func BuildRawTCP(t require.TestingT, laddr, raddr netip.AddrPort, payload []byte) header.IPv4 {
+			require.True(t, laddr.Addr().Is4())
+
+			var ip = packet.Make(header.IPv4MinimumSize, header.IPv4MinimumSize, len(payload))
+
+			ts := uint32(time.Now().UnixNano())
+			header.TCP(ip.Bytes()).Encode(&header.TCPFields{
+				SrcPort:    uint16(laddr.Port()),
+				DstPort:    uint16(raddr.Port()),
+				SeqNum:     501 + ts,
+				AckNum:     ts,
+				DataOffset: header.TCPMinimumSize,
+				Flags:      header.TCPFlagAck | header.TCPFlagPsh,
+				WindowSize: 83,
+				Checksum:   0,
+			})
+
+			ip.Append(payload)
+
+			s, err := ipstack.New(laddr.Addr(), raddr.Addr(), tcp.ProtocolNumber)
+			require.NoError(t, err)
+			s.AttachOutbound(ip)
+
+			CalcChecksum(ip.Bytes())
+			ValidIP(t, ip.Bytes())
+			return ip.Bytes()
+		}
+	*/
 }
 
 func BuildICMP(t require.TestingT, src, dst netip.Addr, typ header.ICMPv4Type, msg []byte) header.IPv4 {

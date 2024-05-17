@@ -359,25 +359,25 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	return nil
 }
 
-func (c *Conn) Write(ctx context.Context, p *packet.Packet) (err error) {
-	c.ipstack.AttachOutbound(p)
+func (c *Conn) Write(_ context.Context, pkt *packet.Packet) (err error) {
+	defer pkt.DetachN(c.ipstack.Size())
+	c.ipstack.AttachOutbound(pkt)
 	if debug.Debug() {
-		test.ValidIP(test.P(), p.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 
-	// todo: ctx
-	_, err = c.raw.Send(p.Bytes(), outboundAddr)
+	_, err = c.raw.Send(pkt.Bytes(), outboundAddr)
 	return err
 }
 
-func (c *Conn) Inject(ctx context.Context, p *packet.Packet) (err error) {
-	c.ipstack.AttachInbound(p)
-
+func (c *Conn) Inject(_ context.Context, pkt *packet.Packet) (err error) {
+	defer pkt.DetachN(c.ipstack.Size())
+	c.ipstack.AttachInbound(pkt)
 	if debug.Debug() {
-		test.ValidIP(test.P(), p.Bytes())
+		test.ValidIP(test.P(), pkt.Bytes())
 	}
 
-	_, err = c.raw.Send(p.Bytes(), c.injectAddr)
+	_, err = c.raw.Send(pkt.Bytes(), c.injectAddr)
 	return err
 }
 

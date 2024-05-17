@@ -363,7 +363,8 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	return nil
 }
 
-func (c *Conn) Write(ctx context.Context, pkt *packet.Packet) (err error) {
+func (c *Conn) Write(_ context.Context, pkt *packet.Packet) (err error) {
+	defer pkt.DetachN(c.ipstack.Size())
 	c.ipstack.AttachOutbound(pkt)
 	if debug.Debug() {
 		test.ValidIP(test.P(), pkt.Bytes())
@@ -373,7 +374,7 @@ func (c *Conn) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 	return err
 }
 
-func (c *Conn) Inject(ctx context.Context, p *packet.Packet) (err error) {
+func (c *Conn) Inject(_ context.Context, p *packet.Packet) (err error) {
 	panic(errors.New("todo: not support, need test"))
 
 	// c.ipstack.AttachInbound(p)

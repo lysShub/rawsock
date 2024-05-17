@@ -106,9 +106,9 @@ func (i *IPStack) IPv4() bool {
 	return i.network == header.IPv4ProtocolNumber
 }
 
-func (i *IPStack) AttachInbound(p *packet.Packet) {
-	p.Attach(i.in)
-	i.calcTransportChecksum(p.Bytes())
+func (i *IPStack) AttachInbound(pkt *packet.Packet) {
+	pkt.Attach(i.in)
+	i.calcTransportChecksum(pkt.Bytes())
 }
 
 func (i *IPStack) UpdateInbound(ip header.IPv4) {
@@ -183,7 +183,7 @@ func (i *IPStack) calcTransportChecksum(ip []byte) {
 	}
 }
 
-func (i *IPStack) checksum(ip []byte) (uint16, []byte) {
+func (i *IPStack) checksum(ip []byte) (psosum uint16, transport []byte) {
 	if i.network == header.IPv4ProtocolNumber {
 		iphdr := header.IPv4(ip)
 		iphdr.SetTotalLength(uint16(len(iphdr)))
@@ -192,7 +192,6 @@ func (i *IPStack) checksum(ip []byte) (uint16, []byte) {
 			iphdr.SetChecksum(^iphdr.CalculateChecksum())
 		}
 
-		var psosum uint16
 		switch i.option.checksum {
 		case reCalcChecksum, updateChecksumWithoutPseudo:
 			psosum = checksum.Combine(i.psoSum1, uint16(len(iphdr.Payload())))

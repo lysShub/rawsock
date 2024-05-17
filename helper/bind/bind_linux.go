@@ -140,6 +140,7 @@ var ethOffloadCache = struct {
 	GRO: map[netip.Addr]bool{},
 }
 
+// todo: 还有 generic-segmentation-offload, large-receive-offload
 func SetGRO(local, remote netip.Addr, gro bool) error {
 	// get route table is expensive call, cache it.
 	if !remote.IsPrivate() {
@@ -187,6 +188,9 @@ func SetGRO(local, remote netip.Addr, gro bool) error {
 	if err != nil {
 		return err
 	}
+	if err := netcall.IoctlGRO(name, gro); err != nil {
+		return err
+	}
 
 	// todo: support rx-gro-hw
 	// ethtool --offload eth0 rx-gro-hw off
@@ -196,5 +200,5 @@ func SetGRO(local, remote netip.Addr, gro bool) error {
 		return errors.Errorf(`exec "%s", error: %s, message: %s`, cmd.String(), err, string(out))
 	}
 
-	return netcall.IoctlGRO(name, gro)
+	return nil
 }
