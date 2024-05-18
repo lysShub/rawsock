@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -20,7 +21,7 @@ import (
 )
 
 type MockRaw struct {
-	options
+	config
 	id            string
 	t             require.TestingT
 	proto         tcpip.TransportProtocolNumber
@@ -37,7 +38,7 @@ type pack struct {
 	t  time.Time // write time
 }
 
-type options struct {
+type config struct {
 	*rawsock.Config
 
 	validAddr     bool
@@ -46,7 +47,7 @@ type options struct {
 	pl            float32
 }
 
-var defaultOptions = options{
+var defaultOptions = config{
 	Config: rawsock.Options(),
 
 	validAddr:     false,
@@ -55,34 +56,35 @@ var defaultOptions = options{
 	pl:            0,
 }
 
-type Option func(*options)
+type Option func(*config)
 
 func RawOpts(opts ...rawsock.Option) Option {
-	return func(o *options) {
+	return func(o *config) {
 		o.Config = rawsock.Options(opts...)
 	}
 }
 
-func ValidAddr(o *options) {
+func ValidAddr(o *config) {
 	o.validAddr = true
 }
 
-func ValidChecksum(o *options) {
+func ValidChecksum(o *config) {
 	o.validChecksum = true
 }
 
 func Delay(delay time.Duration) Option {
-	return func(o *options) {
+	return func(o *config) {
 		o.delay = delay
 	}
 }
 
 func PacketLoss(pl float32) Option {
-	return func(o *options) {
+	return func(o *config) {
 		o.pl = pl
 	}
 }
 
+// todo: 要验证Write的proto
 func NewMockRaw(
 	t require.TestingT,
 	proto tcpip.TransportProtocolNumber,
@@ -96,51 +98,47 @@ func NewMockRaw(
 	var err error
 
 	client = &MockRaw{
-		options: defaultOptions,
-		id:      "client",
-		t:       t,
-		local:   clientAddr,
-		remote:  serverAddr,
-		proto:   proto,
-		out:     a,
-		in:      b,
-		closed:  make(chan struct{}),
+		config: defaultOptions,
+		id:     "client",
+		t:      t,
+		local:  clientAddr,
+		remote: serverAddr,
+		proto:  proto,
+		out:    a,
+		in:     b,
+		closed: make(chan struct{}),
 	}
 	for _, opt := range opts {
-		opt(&client.options)
+		opt(&client.config)
 	}
 	client.ip, err = ipstack.New(
 		client.local.Addr(), client.remote.Addr(),
 		proto,
-		client.options.Config.IPStack.Unmarshal(),
+		client.config.Config.IPStack.Unmarshal(),
 	)
 	require.NoError(t, err)
 
 	server = &MockRaw{
-		options: defaultOptions,
-		id:      "server",
-		t:       t,
-		local:   serverAddr,
-		remote:  clientAddr,
-		proto:   proto,
-		out:     b,
-		in:      a,
-		closed:  make(chan struct{}),
+		config: defaultOptions,
+		id:     "server",
+		t:      t,
+		local:  serverAddr,
+		remote: clientAddr,
+		proto:  proto,
+		out:    b,
+		in:     a,
+		closed: make(chan struct{}),
 	}
 	for _, opt := range opts {
-		opt(&client.options)
+		opt(&server.config)
 	}
 	server.ip, err = ipstack.New(
 		server.local.Addr(), server.remote.Addr(),
 		proto,
-		server.options.Config.IPStack.Unmarshal(),
+		server.config.Config.IPStack.Unmarshal(),
 	)
 	require.NoError(t, err)
 
-	for _, opt := range opts {
-		opt(&client.options)
-		opt(&server.options)
-	}
 	return client, server
 }
 
@@ -175,7 +173,7 @@ func (r *MockRaw) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 
 	pkt.SetData(0)
 	if pkt.Tail() < len(p.ip) {
-		return errorx.ShortBuff(len(p.ip))
+		return errorx.ShortBuff(pkt.Tail(), len(p.ip))
 	}
 	pkt.Append(p.ip).SetData(len(p.ip))
 
@@ -199,25 +197,26 @@ func (r *MockRaw) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 	default:
 	}
 
+	defer pkt.DetachN(r.ip.Size())
 	r.ip.AttachOutbound(pkt)
 	if r.loss() {
 		return nil
 	}
 
-	tmp := append([]byte{}, pkt.Bytes()...)
 	select {
 	case <-r.closed:
 		return errors.WithStack(net.ErrClosed)
 	case <-ctx.Done():
 		return ctx.Err()
-	case r.out <- pack{ip: tmp, t: time.Now()}:
+	case r.out <- pack{ip: slices.Clone(pkt.Bytes()), t: time.Now()}:
+	default:
 	}
 	return nil
 }
 
-func (r *MockRaw) Inject(ctx context.Context, p *packet.Packet) (err error) {
-	var tmp = make([]byte, p.Data())
-	copy(tmp, p.Bytes())
+func (r *MockRaw) Inject(ctx context.Context, pkt *packet.Packet) (err error) {
+	defer pkt.DetachN(r.ip.Size())
+	r.ip.AttachInbound(pkt)
 
 	defer func() {
 		if recover() != nil {
@@ -227,7 +226,7 @@ func (r *MockRaw) Inject(ctx context.Context, p *packet.Packet) (err error) {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case r.in <- pack{ip: tmp, t: time.Unix(0, 0)}:
+	case r.in <- pack{ip: slices.Clone(pkt.Bytes()), t: time.Unix(0, 0)}:
 		return nil
 	}
 }

@@ -8,13 +8,13 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 
 	"github.com/lysShub/netkit/debug"
+	"github.com/lysShub/netkit/errorx"
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/rawsock"
 	"github.com/lysShub/rawsock/helper"
@@ -58,31 +58,23 @@ type Conn struct {
 	raw     *net.IPConn
 	ipstack *ipstack.IPStack
 
-	closeErr atomic.Pointer[error]
+	closeErr errorx.CloseErr
 }
 
 var _ rawsock.RawConn = (*Conn)(nil)
 
 func (c *Conn) close(cause error) error {
-	if c.closeErr.CompareAndSwap(nil, &net.ErrClosed) {
-		if c.raw != nil {
-			if err := c.raw.Close(); err != nil {
-				cause = err
-			}
-		}
+	return c.closeErr.Close(func() (errs []error) {
+		errs = append(errs, cause)
 
 		if c.udp != 0 {
-			if err := syscall.Close(c.udp); err != nil {
-				cause = errors.WithStack(err)
-			}
+			errs = append(errs, errors.WithStack(syscall.Close(c.udp)))
 		}
-
-		if cause != nil {
-			c.closeErr.Store(&cause)
+		if c.raw != nil {
+			errs = append(errs, c.raw.Close())
 		}
-		return cause
-	}
-	return *c.closeErr.Load()
+		return
+	})
 }
 func newConnect(laddr, raddr netip.AddrPort, ctxPeriod time.Duration) *Conn {
 	return &Conn{laddr: laddr, raddr: raddr, ctxPeriod: ctxPeriod}
@@ -153,11 +145,12 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	pkt.SetHead(pkt.Head() + int(hdrLen))
 	return nil
 }
-func (c *Conn) Write(ctx context.Context, pkt *packet.Packet) (err error) {
+func (c *Conn) Write(_ context.Context, pkt *packet.Packet) (err error) {
 	_, err = c.raw.Write(pkt.Bytes())
 	return err
 }
-func (c *Conn) Inject(ctx context.Context, pkt *packet.Packet) (err error) {
+func (c *Conn) Inject(_ context.Context, pkt *packet.Packet) (err error) {
+	defer pkt.DetachN(c.ipstack.Size())
 	c.ipstack.AttachInbound(pkt)
 	if debug.Debug() {
 		test.ValidIP(test.P(), pkt.Bytes())
