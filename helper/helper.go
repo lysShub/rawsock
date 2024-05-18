@@ -16,14 +16,14 @@ func IntegrityCheck(ip []byte) (iphdrsize uint8, err error) {
 	case 4:
 		hdr := header.IPv4(ip)
 		if tn := int(hdr.TotalLength()); tn != len(ip) {
-			return 0, errorx.ShortBuff(int(tn))
+			return 0, errorx.ShortBuff(int(tn), len(ip))
 		}
 		return hdr.HeaderLength(), nil
 	case 6:
 		hdr := header.IPv6(ip)
 		tn := int(hdr.PayloadLength()) + header.IPv6MinimumSize
 		if tn != len(ip) {
-			return 0, errorx.ShortBuff(int(tn))
+			return 0, errorx.ShortBuff(int(tn), len(ip))
 		}
 		return header.IPv6MinimumSize, nil
 	}

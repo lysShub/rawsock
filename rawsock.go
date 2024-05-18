@@ -37,18 +37,21 @@ type Listener interface {
 	Close() error
 }
 
+// todo: support raw rw
 type RawConn interface {
 	Close() error
 
-	// ReadCtx read tcp/udp/icmp packet from remote address, and
-	// can get ip packet by p.SetHead(old)
+	// ReadCtx read tcp/udp/icmp packet from remote address
 	Read(ctx context.Context, pkt *packet.Packet) (err error)
+	// ReadRaw(ctx context.Context, ip *packet.Packet) (err error)
 
 	// WriteCtx write tcp/udp/icmp packet to remote address
 	Write(ctx context.Context, pkt *packet.Packet) (err error)
+	// WriteRaw(ctx context.Context, ip *packet.Packet) (err error)
 
 	// InjectCtx inject tcp/udp/icmp packet to local address
 	Inject(ctx context.Context, pkt *packet.Packet) (err error)
+	// InjectRaw(ctx context.Context, ip *packet.Packet) (err error)
 
 	LocalAddr() netip.AddrPort
 	RemoteAddr() netip.AddrPort

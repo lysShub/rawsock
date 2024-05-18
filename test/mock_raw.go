@@ -173,7 +173,7 @@ func (r *MockRaw) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 
 	pkt.SetData(0)
 	if pkt.Tail() < len(p.ip) {
-		return errorx.ShortBuff(len(p.ip))
+		return errorx.ShortBuff(pkt.Tail(), len(p.ip))
 	}
 	pkt.Append(p.ip).SetData(len(p.ip))
 
@@ -209,6 +209,7 @@ func (r *MockRaw) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 	case <-ctx.Done():
 		return ctx.Err()
 	case r.out <- pack{ip: slices.Clone(pkt.Bytes()), t: time.Now()}:
+	default:
 	}
 	return nil
 }

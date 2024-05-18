@@ -342,7 +342,7 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	n, err := c.raw.RecvCtx(ctx, b[:cap(b)], nil)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
-			return errorx.ShortBuff(n)
+			return errorx.ShortBuff(-1, n)
 		}
 		return err
 	}
