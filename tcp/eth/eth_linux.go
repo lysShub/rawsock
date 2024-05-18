@@ -10,7 +10,6 @@ import (
 	"net/netip"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/lysShub/netkit/debug"
@@ -43,7 +42,7 @@ type Listener struct {
 	conns   map[itcp.ID]struct{}
 	connsMu sync.RWMutex
 
-	closeErr atomic.Pointer[error]
+	closeErr errorx.CloseErr
 }
 
 var _ rawsock.Listener = (*Listener)(nil)
@@ -84,24 +83,16 @@ func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 }
 
 func (l *Listener) close(cause error) error {
-	if l.closeErr.CompareAndSwap(nil, &net.ErrClosed) {
-		if l.tcp != nil {
-			if err := l.tcp.Close(); err != nil {
-				cause = err
-			}
-		}
+	return l.closeErr.Close(func() (errs []error) {
+		errs = append(errs, cause)
 		if l.raw != nil {
-			if err := l.raw.Close(); err != nil {
-				cause = err
-			}
+			errs = append(errs, l.raw.Close())
 		}
-
-		if cause != nil {
-			l.closeErr.Store(&cause)
+		if l.tcp != nil {
+			errs = append(errs, errors.WithStack(l.tcp.Close()))
 		}
-		return cause
-	}
-	return *l.closeErr.Load()
+		return
+	})
 }
 
 func (l *Listener) Addr() netip.AddrPort {
@@ -187,7 +178,7 @@ type Conn struct {
 	ctxPeriod time.Duration
 	closeFn   itcp.CloseCallback
 
-	closeErr atomic.Pointer[error]
+	closeErr errorx.CloseErr
 }
 
 var _ rawsock.RawConn = (*Conn)(nil)
@@ -301,29 +292,19 @@ func (c *Conn) init(cfg *rawsock.Config) (err error) {
 }
 
 func (c *Conn) close(cause error) error {
-	if c.closeErr.CompareAndSwap(nil, &net.ErrClosed) {
-		if c.tcp != nil {
-			if err := c.tcp.Close(); err != nil {
-				cause = err
-			}
-		}
+	return c.closeErr.Close(func() (errs []error) {
+		errs = append(errs, cause)
 		if c.raw != nil {
-			if err := c.raw.Close(); err != nil {
-				cause = err
-			}
+			errs = append(errs, c.raw.Close())
+		}
+		if c.tcp != nil {
+			errs = append(errs, errors.WithStack(c.tcp.Close()))
 		}
 		if c.closeFn != nil {
-			if err := c.closeFn(c.ID); err != nil {
-				cause = err
-			}
+			errs = append(errs, c.closeFn(c.ID))
 		}
-
-		if cause != nil {
-			c.closeErr.Store(&cause)
-		}
-		return cause
-	}
-	return *c.closeErr.Load()
+		return
+	})
 }
 
 func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {

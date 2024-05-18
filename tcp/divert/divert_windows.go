@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"net"
 	"net/netip"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -18,7 +16,7 @@ import (
 	"github.com/lysShub/netkit/packet"
 	"github.com/lysShub/netkit/route"
 	"github.com/lysShub/rawsock"
-	helper "github.com/lysShub/rawsock/helper"
+	"github.com/lysShub/rawsock/helper"
 	"github.com/lysShub/rawsock/helper/bind"
 	"github.com/lysShub/rawsock/helper/ipstack"
 	itcp "github.com/lysShub/rawsock/tcp/internal"
@@ -54,7 +52,7 @@ type Listener struct {
 	conns   map[itcp.ID]struct{}
 	connsMu sync.RWMutex
 
-	closeErr atomic.Pointer[error]
+	closeErr errorx.CloseErr
 }
 
 var _ rawsock.Listener = (*Listener)(nil)
@@ -106,24 +104,17 @@ func Priority(p int16) rawsock.Option {
 }
 
 func (l *Listener) close(cause error) error {
-	if l.closeErr.CompareAndSwap(nil, &net.ErrClosed) {
-		if l.tcp != 0 {
-			if err := windows.Close(l.tcp); err != nil {
-				cause = err
-			}
-		}
-		if l.raw != nil {
-			if err := l.raw.Close(); err != nil {
-				cause = err
-			}
-		}
+	return l.closeErr.Close(func() (errs []error) {
+		errs = append(errs, cause)
 
-		if cause != nil {
-			l.closeErr.Store(&cause)
+		if l.raw != nil {
+			errs = append(errs, l.raw.Close())
 		}
-		return cause
-	}
-	return *l.closeErr.Load()
+		if l.tcp != 0 {
+			errs = append(errs, errors.WithStack(windows.Close(l.tcp)))
+		}
+		return
+	})
 }
 
 func (l *Listener) Addr() netip.AddrPort { return l.addr }
@@ -208,7 +199,7 @@ type Conn struct {
 	ipstack *ipstack.IPStack
 
 	closeFn  itcp.CloseCallback
-	closeErr atomic.Pointer[error]
+	closeErr errorx.CloseErr
 }
 
 var outboundAddr = func() *divert.Address {
@@ -221,31 +212,20 @@ var outboundAddr = func() *divert.Address {
 var _ rawsock.RawConn = (*Conn)(nil)
 
 func (c *Conn) close(cause error) error {
-	if c.closeErr.CompareAndSwap(nil, &net.ErrClosed) {
-		if c.closeFn != nil {
-			if err := c.closeFn(c.ID); err != nil {
-				cause = err
-			}
-		}
-
-		if c.tcp != 0 {
-			if err := windows.Close(c.tcp); err != nil {
-				cause = err
-			}
-		}
+	return c.closeErr.Close(func() (errs []error) {
+		errs = append(errs, cause)
 
 		if c.raw != nil {
-			if err := c.raw.Close(); err != nil {
-				cause = err
-			}
+			errs = append(errs, c.raw.Close())
 		}
-
-		if cause != nil {
-			c.closeErr.Store(&cause)
+		if c.tcp != 0 {
+			errs = append(errs, errors.WithStack(windows.Close(c.tcp)))
 		}
-		return cause
-	}
-	return *c.closeErr.Load()
+		if c.closeFn != nil {
+			errs = append(errs, c.closeFn(c.ID))
+		}
+		return
+	})
 }
 
 func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error) {
