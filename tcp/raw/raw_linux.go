@@ -226,10 +226,10 @@ func (c *Conn) init(cfg *rawsock.Config) (err error) {
 	// todo: if loopback, should set tso/gso:
 	//   ethtool -K lo tcp-segmentation-offload off
 	//   ethtool -K lo generic-segmentation-offload off
-	if err = bind.SetGRO(
-		c.Local.Addr(), c.Remote.Addr(), cfg.GRO,
-	); err != nil {
-		return err
+	if cfg.SetGRO {
+		if err = bind.SetGRO(c.Local.Addr(), c.Remote.Addr(), cfg.SetGRO); err != nil {
+			return err
+		}
 	}
 
 	// filter src/dst ports

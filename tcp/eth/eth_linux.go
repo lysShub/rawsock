@@ -264,10 +264,10 @@ func (c *Conn) init(cfg *rawsock.Config) (err error) {
 		}
 	}
 
-	if err := bind.SetGRO(
-		c.Local.Addr(), c.Remote.Addr(), cfg.GRO,
-	); err != nil {
-		return err
+	if cfg.SetGRO {
+		if err := bind.SetGRO(c.Local.Addr(), c.Remote.Addr(), false); err != nil {
+			return err
+		}
 	}
 
 	// create eth conn and set bpf filter
