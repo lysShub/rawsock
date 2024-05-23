@@ -26,7 +26,7 @@ require (
 )
 
 require (
-	github.com/lysShub/netkit v0.0.0-20240523013759-d8c6115e71f6
+	github.com/lysShub/netkit v0.0.0-20240523071634-a634aa727e4f
 	github.com/lysShub/wintun-go v0.0.0-20240410130619-383598c11ea1
 	golang.org/x/sync v0.1.0
 )

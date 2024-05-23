@@ -6,10 +6,7 @@ import (
 	"net/netip"
 
 	"github.com/lysShub/netkit/packet"
-	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
-
-const Overhead = header.IPv4MinimumSize // todo: ipv6
 
 type Listener interface {
 
@@ -54,7 +51,6 @@ type RawConn interface {
 	Inject(ctx context.Context, pkt *packet.Packet) (err error)
 	// InjectRaw(ctx context.Context, ip *packet.Packet) (err error)
 
-	packet.Overhead
 	LocalAddr() netip.AddrPort
 	RemoteAddr() netip.AddrPort
 	Close() error
