@@ -236,6 +236,7 @@ func (r *MockRaw) RemoteAddr() netip.AddrPort { return r.remote }
 func (r *MockRaw) loss() bool {
 	return rand.Uint32() <= uint32(float32(math.MaxUint32)*r.pl)
 }
+func (r *MockRaw) Overhead() (int, int) { return r.ip.Size(), 0 }
 
 type MockListener struct {
 	addr netip.AddrPort

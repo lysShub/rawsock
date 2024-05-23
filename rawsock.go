@@ -37,9 +37,10 @@ type Listener interface {
 	Close() error
 }
 
-// todo: support raw rw
+// todo: 支持raw读写
+// todo: 删除Read会将tail作为容量进行读取
+// todo: 删除ctx支持，改用deadline
 type RawConn interface {
-	Close() error
 
 	// ReadCtx read tcp/udp/icmp packet from remote address
 	Read(ctx context.Context, pkt *packet.Packet) (err error)
@@ -53,8 +54,10 @@ type RawConn interface {
 	Inject(ctx context.Context, pkt *packet.Packet) (err error)
 	// InjectRaw(ctx context.Context, ip *packet.Packet) (err error)
 
+	packet.Overhead
 	LocalAddr() netip.AddrPort
 	RemoteAddr() netip.AddrPort
+	Close() error
 }
 
 func LocalAddr() netip.Addr {

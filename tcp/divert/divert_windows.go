@@ -361,7 +361,7 @@ func (c *Conn) Inject(_ context.Context, pkt *packet.Packet) (err error) {
 	return err
 }
 
-func (c *Conn) Close() error { return c.close(nil) }
-
+func (c *Conn) Overhead() (int, int)       { return c.ipstack.Size(), 0 }
 func (c *Conn) LocalAddr() netip.AddrPort  { return c.Local }
 func (c *Conn) RemoteAddr() netip.AddrPort { return c.Remote }
+func (c *Conn) Close() error               { return c.close(nil) }

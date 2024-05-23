@@ -171,7 +171,7 @@ type Conn struct {
 	// todo: set buff 0
 	tcp *net.TCPListener
 
-	raw     *eth.Conn
+	raw     *eth.ETHConn
 	ipstack *ipstack.IPStack
 	gateway net.HardwareAddr
 
@@ -317,7 +317,7 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 			return err
 		}
 
-		n, _, err = c.raw.Recvfrom(b[:cap(b)], 0)
+		n, _, err = c.raw.ReadFromETH(b[:cap(b)])
 		if err == nil {
 			break
 		} else if errors.Is(err, os.ErrDeadlineExceeded) {
@@ -351,7 +351,7 @@ func (c *Conn) Write(_ context.Context, pkt *packet.Packet) (err error) {
 		test.ValidIP(test.P(), pkt.Bytes())
 	}
 
-	err = c.raw.Sendto(pkt.Bytes(), 0, c.gateway)
+	_, err = c.raw.WriteToETH(pkt.Bytes(), c.gateway)
 	return err
 }
 
@@ -366,11 +366,9 @@ func (c *Conn) Inject(_ context.Context, p *packet.Packet) (err error) {
 	// _, err = c.raw.Write(p.Data())
 	// return err
 }
+func (c *Conn) Raw() *eth.ETHConn { return c.raw }
 
-func (c *Conn) Close() (err error) {
-	return c.close(nil)
-}
-
+func (c *Conn) Overhead() (int, int)       { return c.ipstack.Size(), 0 }
 func (c *Conn) LocalAddr() netip.AddrPort  { return c.Local }
 func (c *Conn) RemoteAddr() netip.AddrPort { return c.Remote }
-func (c *Conn) Raw() *eth.Conn             { return c.raw }
+func (c *Conn) Close() (err error)         { return c.close(nil) }

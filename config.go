@@ -21,7 +21,7 @@ func Options(opts ...Option) *Config {
 	var cfg = &Config{
 		UsedPort:  false,
 		CtxPeriod: time.Millisecond * 100,
-		SetGRO:    false,
+		SetGRO:    true,
 		IPStack:   ipstack.Options(),
 
 		DivertPriorty: 0,
