@@ -483,7 +483,7 @@ func (u *ustack) Inject(ip []byte) {
 
 func (u *ustack) Read(ctx context.Context) (ip []byte) {
 	pkb := u.link.ReadContext(ctx)
-	if pkb.IsNil() {
+	if pkb == nil {
 		return nil // ctx cancel
 	}
 	defer pkb.DecRef()
