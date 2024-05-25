@@ -25,7 +25,7 @@ jobs:
       with:
         go-version: '1.21'
     - run : go vet
-    - run : go test -v -timeout 120s -tags "-race" ./... 
+    - run : go test -v -timeout 120s -tags "-race debug" ./... 
           
   linux-test-job:
     name: go-linux-test
@@ -38,4 +38,4 @@ jobs:
       with:
         go-version: '1.21'
     - run : go vet
-    - run : go test -v -timeout 120s -tags "-race" ./... 
+    - run : go test -v -timeout 120s -tags "-race debug" ./... 
