@@ -424,7 +424,7 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw ra
 		sum := calcChecksum()
 		for {
 			ip.Sets(0, mtu)
-			err := raw.Read(ctx, ip)
+			err := raw.Read(ip)
 			if errors.Is(err, context.Canceled) {
 				return
 			}
@@ -470,7 +470,7 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw ra
 			// 	tcphdr.Flags(),
 			// )
 
-			err := raw.Write(ctx, packet.Make().Append(StripIP(ip)))
+			err := raw.Write(packet.Make().Append(StripIP(ip)))
 			require.NoError(t, err)
 		}
 	}()

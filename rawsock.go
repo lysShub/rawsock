@@ -1,7 +1,6 @@
 package rawsock
 
 import (
-	"context"
 	"net"
 	"net/netip"
 
@@ -36,20 +35,19 @@ type Listener interface {
 
 // todo: 支持raw读写
 // todo: 删除Read会将tail作为容量进行读取
-// todo: 删除ctx支持，改用deadline
+// todo: 支持deadline
 type RawConn interface {
 
-	// ReadCtx read tcp/udp/icmp packet from remote address
-	Read(ctx context.Context, pkt *packet.Packet) (err error)
-	// ReadRaw(ctx context.Context, ip *packet.Packet) (err error)
+	// Read read tcp/udp/icmp packet from remote address
+	Read(pkt *packet.Packet) (err error)
+	// ReadRaw(ip *packet.Packet) (err error)
 
-	// WriteCtx write tcp/udp/icmp packet to remote address
-	Write(ctx context.Context, pkt *packet.Packet) (err error)
-	// WriteRaw(ctx context.Context, ip *packet.Packet) (err error)
+	// Write write tcp/udp/icmp packet to remote address
+	Write(pkt *packet.Packet) (err error)
+	// WriteRaw( ip *packet.Packet) (err error)
 
-	// InjectCtx inject tcp/udp/icmp packet to local address
-	Inject(ctx context.Context, pkt *packet.Packet) (err error)
-	// InjectRaw(ctx context.Context, ip *packet.Packet) (err error)
+	// Inject inject tcp/udp/icmp packet to local address
+	Inject(pkt *packet.Packet) (err error)
 
 	LocalAddr() netip.AddrPort
 	RemoteAddr() netip.AddrPort

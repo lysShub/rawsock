@@ -1,7 +1,6 @@
 package divert
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"net/netip"
@@ -317,9 +316,8 @@ func (c *Conn) init(cfg *rawsock.Config) (err error) {
 	return nil
 }
 
-func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
-	b := pkt.Bytes()
-	n, err := c.raw.RecvCtx(ctx, b[:cap(b)], nil)
+func (c *Conn) Read(pkt *packet.Packet) (err error) {
+	n, err := c.raw.Recv(pkt.Bytes(), nil)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
 			return errorx.ShortBuff(-1, n)
@@ -328,7 +326,7 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	}
 
 	pkt.SetData(n)
-	hdr, err := helper.IntegrityCheck(pkt.Bytes())
+	hdr, err := helper.IPCheck(pkt.Bytes())
 	if err != nil {
 		return err
 	}
@@ -339,7 +337,7 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	return nil
 }
 
-func (c *Conn) Write(_ context.Context, pkt *packet.Packet) (err error) {
+func (c *Conn) Write(pkt *packet.Packet) (err error) {
 	defer pkt.DetachN(c.ipstack.Size())
 	c.ipstack.AttachOutbound(pkt)
 	if debug.Debug() {
@@ -350,7 +348,7 @@ func (c *Conn) Write(_ context.Context, pkt *packet.Packet) (err error) {
 	return err
 }
 
-func (c *Conn) Inject(_ context.Context, pkt *packet.Packet) (err error) {
+func (c *Conn) Inject(pkt *packet.Packet) (err error) {
 	defer pkt.DetachN(c.ipstack.Size())
 	c.ipstack.AttachInbound(pkt)
 	if debug.Debug() {

@@ -11,7 +11,7 @@ import (
 )
 
 // todo: set MSG_TRUNC flag
-func IntegrityCheck(ip []byte) (iphdrsize uint8, err error) {
+func IPCheck(ip []byte) (iphdrsize uint8, err error) {
 	switch header.IPVersion(ip) {
 	case 4:
 		hdr := header.IPv4(ip)

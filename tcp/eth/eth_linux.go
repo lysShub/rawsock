@@ -4,11 +4,9 @@
 package eth
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/netip"
-	"os"
 	"sync"
 	"time"
 
@@ -307,33 +305,14 @@ func (c *Conn) close(cause error) error {
 	})
 }
 
-func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
-	b := pkt.Bytes()
-
-	var n int
-	for {
-		err = c.raw.SetReadDeadline(time.Now().Add(c.ctxPeriod))
-		if err != nil {
-			return err
-		}
-
-		n, _, err = c.raw.ReadFromETH(b[:cap(b)])
-		if err == nil {
-			break
-		} else if errors.Is(err, os.ErrDeadlineExceeded) {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-				continue
-			}
-		} else {
-			return err
-		}
+func (c *Conn) Read(pkt *packet.Packet) (err error) {
+	n, _, err := c.raw.ReadFromETH(pkt.Bytes())
+	if err != nil {
+		return err
 	}
 	pkt.SetData(n)
 
-	hdr, err := helper.IntegrityCheck(pkt.Bytes())
+	hdr, err := helper.IPCheck(pkt.Bytes())
 	if err != nil {
 		return err
 	}
@@ -344,7 +323,7 @@ func (c *Conn) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	return nil
 }
 
-func (c *Conn) Write(_ context.Context, pkt *packet.Packet) (err error) {
+func (c *Conn) Write(pkt *packet.Packet) (err error) {
 	defer pkt.DetachN(c.ipstack.Size())
 	c.ipstack.AttachOutbound(pkt)
 	if debug.Debug() {
@@ -355,7 +334,7 @@ func (c *Conn) Write(_ context.Context, pkt *packet.Packet) (err error) {
 	return err
 }
 
-func (c *Conn) Inject(_ context.Context, p *packet.Packet) (err error) {
+func (c *Conn) Inject(p *packet.Packet) (err error) {
 	panic(errors.New("todo: not support, need test"))
 
 	// c.ipstack.AttachInbound(p)

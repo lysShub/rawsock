@@ -30,7 +30,7 @@ func Test_Mock_RawConn(t *testing.T) {
 
 		go func() {
 			for i := 0; i < 1e4; i++ {
-				err := c.Write(context.Background(), packet.Make(0, 20))
+				err := c.Write(packet.Make(0, 20))
 				require.NoError(t, err)
 			}
 			c.Close()
@@ -40,7 +40,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		var n int
 		var p = packet.Make(0, 128)
 		for {
-			err := s.Read(context.Background(), p.SetHead(0))
+			err := s.Read(p.SetHead(0))
 			if err != nil {
 				break
 			}
@@ -66,11 +66,11 @@ func Test_Mock_RawConn(t *testing.T) {
 			netip.AddrPortFrom(LocIP(), RandPort()),
 		)
 
-		err := c.Write(context.Background(), packet.Make().Append(tcp))
+		err := c.Write(packet.Make().Append(tcp))
 		require.NoError(t, err)
 
 		var b = packet.Make(0, 128)
-		err = s.Read(context.Background(), b)
+		err = s.Read(b)
 		require.NoError(t, err)
 		require.Equal(t, []byte(tcp), b.Bytes())
 	})
@@ -84,13 +84,13 @@ func Test_Mock_RawConn(t *testing.T) {
 		defer s.Close()
 
 		var tcphdr = []byte{21: 1}
-		err := c.Write(context.Background(), packet.Make().Append(tcphdr))
+		err := c.Write(packet.Make().Append(tcphdr))
 		require.NoError(t, err)
 
 		tcphdr[21] = 2
 
 		var b = packet.Make(0, len(tcphdr)+20)
-		err = s.Read(context.Background(), b)
+		err = s.Read(b)
 		require.NoError(t, err)
 		require.Equal(t, uint8(1), b.Bytes()[21])
 	})
@@ -108,13 +108,13 @@ func Test_Mock_RawConn(t *testing.T) {
 		tcphdr.Encode(&header.TCPFields{DataOffset: 20})
 		tcphdr.Payload()[0] = 1
 
-		err := c.Write(context.Background(), p1)
+		err := c.Write(p1)
 		require.NoError(t, err)
 
 		p1.Bytes()[20] = 2
 
 		p2 := packet.Make(0, 64)
-		err = s.Read(context.Background(), p2)
+		err = s.Read(p2)
 		require.NoError(t, err)
 		require.Equal(t, byte(1), header.TCP(p2.Bytes()).Payload()[0])
 	})
@@ -136,12 +136,12 @@ func Test_Mock_RawConn(t *testing.T) {
 		defer c.Close()
 		defer s.Close()
 
-		err := c.Write(context.Background(), packet.Make(0, 20))
+		err := c.Write(packet.Make(0, 20))
 		require.NoError(t, err)
 
 		var p = packet.Make(0, 0, 64)
 		start := time.Now()
-		err = s.Read(context.Background(), p)
+		err = s.Read(p)
 		require.NoError(t, err)
 		require.Greater(t, time.Second*3, time.Since(start))
 	})
