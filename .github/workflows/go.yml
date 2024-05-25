@@ -10,7 +10,7 @@ on:
     branches: [ "master" ]
 
 jobs:
-  win-test:
+  win-test-job:
     name: go-win-test
     runs-on: windows-latest
     env:
@@ -21,11 +21,9 @@ jobs:
         git config --global core.autocrlf false
         git config --global core.eol lf
 
-    - name: clone-repo
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: setup-go
-      uses: actions/setup-go@v4
+    - uses: actions/setup-go@v4
       with:
         go-version: '1.20'
 
@@ -34,22 +32,19 @@ jobs:
             go vet
             go test -v -timeout 120s -tags "-race" ./... 
 
-
-  linux-test:
+  linux-test-job:
     name: go-linux-test
     runs-on: ubuntun-latest
     env:
       CGO_ENABLED: 0 
 
-    - name: clone-repo
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: setup-go
-      uses: actions/setup-go@v4
+    - uses: actions/setup-go@v4
       with:
         go-version: '1.20'
 
-    - name: go-vet-test # fmt check see Test_Gofmt
+    - name: go-vet-test
       run : |
             go vet
             go test -v -timeout 120s -tags "-race" ./... 
