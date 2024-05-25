@@ -24,10 +24,9 @@ jobs:
     - uses: actions/setup-go@v4
       with:
         go-version: '1.20'
-    - name: go-vet-test
-      run : |
-          go vet
-          go test -v -timeout 120s -tags "-race" ./... 
+    - run : go vet
+    - run : go test -v -timeout 120s -tags "-race" ./... 
+          
   linux-test-job:
     name: go-linux-test
     runs-on: ubuntun-latest
@@ -37,7 +36,5 @@ jobs:
     - uses: actions/setup-go@v4
       with:
         go-version: '1.20'
-    - name: go-vet-test
-      run : |
-          go vet
-          go test -v -timeout 120s -tags "-race" ./... 
+    - run : go vet
+    - run : go test -v -timeout 120s -tags "-race" ./... 
