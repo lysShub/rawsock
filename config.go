@@ -56,7 +56,7 @@ func Checksum(opts ...ipstack.Option) Option {
 	}
 }
 
-// SetGRO is disable gro, deafult false(not change)
+// SetGRO is disable gro, deafult true
 func SetGRO(set bool) Option {
 	return func(c *Config) {
 		c.SetGRO = set

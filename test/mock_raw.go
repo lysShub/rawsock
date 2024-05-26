@@ -168,11 +168,10 @@ func (r *MockRaw) Read(pkt *packet.Packet) (err error) {
 		time.Sleep(max(dur, 0))
 	}
 
-	pkt.SetData(0)
-	if pkt.Tail() < len(p.ip) {
-		return errorx.ShortBuff(pkt.Tail(), len(p.ip))
+	if pkt.Data() < len(p.ip) {
+		return errorx.ShortBuff(pkt.Data(), len(p.ip))
 	}
-	pkt.Append(p.ip).SetData(len(p.ip))
+	pkt.SetData(0).Append(p.ip)
 
 	switch header.IPVersion(p.ip) {
 	case 4:

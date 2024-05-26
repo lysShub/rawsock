@@ -272,7 +272,7 @@ func (c *Conn) close(cause error) error {
 func (c *Conn) Read(pkt *packet.Packet) (err error) {
 	n, err := c.raw.Read(pkt.Bytes())
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 	pkt.SetData(n)
 
@@ -289,7 +289,7 @@ func (c *Conn) Read(pkt *packet.Packet) (err error) {
 
 func (c *Conn) Write(pkt *packet.Packet) (err error) {
 	_, err = c.raw.Write(pkt.Bytes())
-	return err
+	return errors.WithStack(err)
 }
 
 func (c *Conn) Inject(pkt *packet.Packet) (err error) {
@@ -299,7 +299,7 @@ func (c *Conn) Inject(pkt *packet.Packet) (err error) {
 		test.ValidIP(test.P(), pkt.Bytes())
 	}
 	_, err = c.raw.Write(pkt.Bytes())
-	return err
+	return errors.WithStack(err)
 }
 
 func (c *Conn) LocalAddr() netip.AddrPort  { return c.Local }
