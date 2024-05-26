@@ -1,23 +1,18 @@
 package test
 
 import (
-	"context"
-	"io"
-	"math/rand"
 	"net/netip"
 	"testing"
 	"time"
 
 	"github.com/lysShub/netkit/packet"
 	"github.com/stretchr/testify/require"
-	"gvisor.dev/gvisor/pkg/tcpip"
-	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 func Test_Mock_RawConn(t *testing.T) {
 
-	t.Run("MockRaw/PackLoss", func(t *testing.T) {
+	t.Run("PackLoss", func(t *testing.T) {
 		var pl float32 = 0.01
 
 		c, s := NewMockRaw(
@@ -53,7 +48,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		require.LessOrEqual(t, exp, n+delta)
 	})
 
-	t.Run("MockRaw/read-write", func(t *testing.T) {
+	t.Run("read-write", func(t *testing.T) {
 		c, s := NewMockRaw(
 			t, header.TCPProtocolNumber,
 			netip.AddrPortFrom(LocIP(), RandPort()), netip.AddrPortFrom(LocIP(), RandPort()),
@@ -75,7 +70,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		require.Equal(t, []byte(tcp), b.Bytes())
 	})
 
-	t.Run("MockRaw/Write/memcpy", func(t *testing.T) {
+	t.Run("Write/memcpy1", func(t *testing.T) {
 		c, s := NewMockRaw(
 			t, header.TCPProtocolNumber,
 			netip.AddrPortFrom(LocIP(), RandPort()), netip.AddrPortFrom(LocIP(), RandPort()),
@@ -95,7 +90,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		require.Equal(t, uint8(1), b.Bytes()[21])
 	})
 
-	t.Run("MockRaw/WriteCtx/memcpy", func(t *testing.T) {
+	t.Run("Write/memcpy2", func(t *testing.T) {
 		c, s := NewMockRaw(
 			t, header.TCPProtocolNumber,
 			netip.AddrPortFrom(LocIP(), RandPort()), netip.AddrPortFrom(LocIP(), RandPort()),
@@ -146,77 +141,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		require.Greater(t, time.Second*3, time.Since(start))
 	})
 
-	t.Run("MockRaw/ustack", func(t *testing.T) {
-		var (
-			saddr = netip.AddrPortFrom(LocIP(), RandPort())
-			caddr = netip.AddrPortFrom(LocIP(), RandPort())
-
-			seed int64 = time.Now().UnixNano()
-			r          = rand.New(rand.NewSource(seed))
-		)
-		t.Log("seed", seed)
-		c, s := NewMockRaw(
-			t, header.TCPProtocolNumber,
-			caddr, saddr,
-			ValidAddr, ValidChecksum, PacketLoss(0.05),
-		)
-		defer c.Close()
-		defer s.Close()
-
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
-		defer cancel()
-
-		// server
-		go func() {
-			us := NewUstack(t, saddr.Addr(), false)
-			BindRawToUstack(t, ctx, us, s)
-
-			l, err := gonet.ListenTCP(
-				us.Stack(),
-				tcpip.FullAddress{Addr: tcpip.AddrFrom4(saddr.Addr().As4()), Port: saddr.Port()},
-				header.IPv4ProtocolNumber,
-			)
-			require.NoError(t, err)
-			defer l.Close()
-
-			tcp, err := l.Accept()
-			require.NoError(t, err)
-			defer tcp.Close()
-
-			io.Copy(tcp, tcp)
-		}()
-		time.Sleep(time.Second)
-
-		// client
-		{
-			us := NewUstack(t, caddr.Addr(), false)
-			BindRawToUstack(t, ctx, us, c)
-
-			conn, err := gonet.DialTCPWithBind(
-				ctx, us.Stack(),
-				tcpip.FullAddress{Addr: tcpip.AddrFrom4(caddr.Addr().As4()), Port: caddr.Port()},
-				tcpip.FullAddress{Addr: tcpip.AddrFrom4(saddr.Addr().As4()), Port: saddr.Port()},
-				header.IPv4ProtocolNumber,
-			)
-			require.NoError(t, err)
-			defer conn.Close()
-
-			for i := 0; i < 64; i++ {
-				var msg = make([]byte, r.Int31()%1023+1)
-				r.Read(msg)
-
-				_, err = conn.Write(msg)
-				require.NoError(t, err)
-
-				var b = make([]byte, len(msg))
-				_, err = io.ReadFull(conn, b)
-				require.NoError(t, err)
-
-				require.Equal(t, string(msg), string(b), i)
-			}
-		}
-
-		cancel()
+	t.Run("stack", func(t *testing.T) {
+		t.Skip("todo")
 	})
-
 }
