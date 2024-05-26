@@ -51,8 +51,6 @@ func (t *NicTuple) srv(self, peer *wintun.Adapter, peerAddr netip.Addr) {
 				// 	)
 				// }
 
-				println("packetxxxxxxxxxxxxxxxxxxxxxxx", iphdr.ID())
-
 				np, err := peer.Alloc(len(p))
 				if err != nil {
 					panic(err)

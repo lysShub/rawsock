@@ -15,8 +15,6 @@ func Test_Create_Tuns(t *testing.T) {
 	require.NoError(t, err)
 	defer tup.Close()
 
-	println("created tuns xxxx")
-
 	var (
 		caddr = &net.TCPAddr{IP: tup.Addr1.AsSlice(), Port: 19986}
 		saddr = &net.TCPAddr{IP: tup.Addr2.AsSlice(), Port: 8080}
