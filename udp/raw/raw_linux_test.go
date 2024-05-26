@@ -46,7 +46,7 @@ func Test_Connect(t *testing.T) {
 		require.NoError(t, err)
 		defer raw.Close()
 		var p = packet.Make(0, 1536)
-		err = raw.Read(context.Background(), p)
+		err = raw.Read(p)
 		require.NoError(t, err)
 
 		u := header.UDP(p.Bytes())

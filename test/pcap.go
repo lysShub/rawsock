@@ -1,8 +1,6 @@
 package test
 
 import (
-	"context"
-
 	"github.com/pkg/errors"
 
 	"github.com/lysShub/netkit/debug"
@@ -55,9 +53,9 @@ func (w *PcapWrap) Close() (err error) {
 	return err
 }
 
-func (w *PcapWrap) Read(ctx context.Context, pkt *packet.Packet) (err error) {
+func (w *PcapWrap) Read(pkt *packet.Packet) (err error) {
 	old := pkt.Head()
-	err = w.RawConn.Read(ctx, pkt)
+	err = w.RawConn.Read(pkt)
 	if err != nil {
 		return err
 	}
@@ -73,10 +71,10 @@ func (w *PcapWrap) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	return err
 }
 
-func (w *PcapWrap) Write(ctx context.Context, pkt *packet.Packet) (err error) {
+func (w *PcapWrap) Write(pkt *packet.Packet) (err error) {
 	clone := pkt.Clone()
 
-	err = w.RawConn.Write(ctx, pkt)
+	err = w.RawConn.Write(pkt)
 	if err != nil {
 		return err
 	}
@@ -87,10 +85,10 @@ func (w *PcapWrap) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 	}
 	return w.pcap.WriteIP(clone.Bytes())
 }
-func (w *PcapWrap) Inject(ctx context.Context, pkt *packet.Packet) (err error) {
+func (w *PcapWrap) Inject(pkt *packet.Packet) (err error) {
 	clone := pkt.Clone()
 
-	err = w.RawConn.Inject(ctx, pkt)
+	err = w.RawConn.Inject(pkt)
 	if err != nil {
 		return err
 	}

@@ -38,7 +38,7 @@ func Test_FilterDstPortAndSynFlag(t *testing.T) {
 
 		n, err := vm.Run(e.IP)
 		require.NoError(t, err)
-		require.Equal(t, e.Ret, n)
+		require.Equal(t, e.Ret, uint16(n))
 
 	}
 

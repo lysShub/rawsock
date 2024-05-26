@@ -161,7 +161,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.Write(context.Background(), packet.Make().Append(tcp))
+			err = raw.Write(packet.Make().Append(tcp))
 			require.NoError(t, err)
 		}()
 
@@ -170,7 +170,7 @@ func Test_Complete_Check(t *testing.T) {
 		defer raw.Close()
 
 		var ip = packet.Make(0, 39, 0)
-		err = raw.Read(context.Background(), ip)
+		err = raw.Read(ip)
 		require.True(t, errors.Is(err, io.ErrShortBuffer), err)
 	})
 
@@ -189,7 +189,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.Write(context.Background(), packet.Make().Append(tcp))
+			err = raw.Write(packet.Make().Append(tcp))
 			require.NoError(t, err)
 		}()
 
@@ -198,7 +198,7 @@ func Test_Complete_Check(t *testing.T) {
 		defer raw.Close()
 
 		var p = packet.Make(0, 39, 0)
-		err = raw.Read(context.Background(), p)
+		err = raw.Read(p)
 		require.True(t, errors.Is(err, io.ErrShortBuffer), err)
 	})
 }

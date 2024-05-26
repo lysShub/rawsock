@@ -1,7 +1,6 @@
 package test
 
 import (
-	"context"
 	"math"
 	"math/rand"
 	"net"
@@ -32,6 +31,8 @@ type MockRaw struct {
 	out    chan<- pack
 	closed chan struct{}
 }
+
+var _ rawsock.RawConn = (*MockRaw)(nil)
 
 type pack struct {
 	ip header.IPv4
@@ -142,8 +143,6 @@ func NewMockRaw(
 	return client, server
 }
 
-var _ rawsock.RawConn = (*MockRaw)(nil)
-
 func (r *MockRaw) Close() error {
 	select {
 	case <-r.closed:
@@ -153,11 +152,9 @@ func (r *MockRaw) Close() error {
 	return nil
 }
 
-func (r *MockRaw) Read(ctx context.Context, pkt *packet.Packet) (err error) {
+func (r *MockRaw) Read(pkt *packet.Packet) (err error) {
 	var p pack
 	select {
-	case <-ctx.Done():
-		return ctx.Err()
 	case <-r.closed:
 		select {
 		case p = <-r.in:
@@ -190,7 +187,7 @@ func (r *MockRaw) Read(ctx context.Context, pkt *packet.Packet) (err error) {
 	return nil
 }
 
-func (r *MockRaw) Write(ctx context.Context, pkt *packet.Packet) (err error) {
+func (r *MockRaw) Write(pkt *packet.Packet) (err error) {
 	select {
 	case <-r.closed:
 		return errors.WithStack(net.ErrClosed)
@@ -206,15 +203,13 @@ func (r *MockRaw) Write(ctx context.Context, pkt *packet.Packet) (err error) {
 	select {
 	case <-r.closed:
 		return errors.WithStack(net.ErrClosed)
-	case <-ctx.Done():
-		return ctx.Err()
 	case r.out <- pack{ip: slices.Clone(pkt.Bytes()), t: time.Now()}:
 	default:
 	}
 	return nil
 }
 
-func (r *MockRaw) Inject(ctx context.Context, pkt *packet.Packet) (err error) {
+func (r *MockRaw) Inject(pkt *packet.Packet) (err error) {
 	defer pkt.DetachN(r.ip.Size())
 	r.ip.AttachInbound(pkt)
 
@@ -224,9 +219,9 @@ func (r *MockRaw) Inject(ctx context.Context, pkt *packet.Packet) (err error) {
 		}
 	}()
 	select {
-	case <-ctx.Done():
-		return ctx.Err()
 	case r.in <- pack{ip: slices.Clone(pkt.Bytes()), t: time.Unix(0, 0)}:
+		return nil
+	default:
 		return nil
 	}
 }

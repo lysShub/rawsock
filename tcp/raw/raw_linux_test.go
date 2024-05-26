@@ -18,7 +18,6 @@ import (
 
 	"github.com/lysShub/netkit/debug"
 	"github.com/lysShub/netkit/packet"
-	"github.com/lysShub/rawsock"
 	"github.com/lysShub/rawsock/test"
 	"github.com/stretchr/testify/require"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -258,29 +257,6 @@ func Test_Default_Addr(t *testing.T) {
 	})
 }
 
-func Test_Context(t *testing.T) {
-	var (
-		caddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
-		saddr = netip.AddrPortFrom(test.LocIP(), test.RandPort())
-	)
-
-	const period = time.Millisecond * 100
-	tcp, err := Connect(caddr, saddr, rawsock.CtxPeriod(period))
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(time.Second)
-		cancel()
-	}()
-
-	p := packet.Make(0, 1356)
-	s := time.Now()
-	err = tcp.Read(ctx, p)
-	require.True(t, errors.Is(err, context.Canceled))
-	require.Less(t, time.Since(s), time.Second+2*period)
-}
-
 func Test_Complete_Check(t *testing.T) {
 	// todo: maybe checksum offload?
 	monkey.Patch(debug.Debug, func() bool { return false })
@@ -300,7 +276,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.Write(context.Background(), packet.Make().Append(tcp))
+			err = raw.Write(packet.Make().Append(tcp))
 			require.NoError(t, err)
 		}()
 
@@ -309,7 +285,7 @@ func Test_Complete_Check(t *testing.T) {
 		defer raw.Close()
 
 		var ip = packet.Make(0, 39, 0)
-		err = raw.Read(context.Background(), ip)
+		err = raw.Read(ip)
 		require.True(t, errors.Is(err, io.ErrShortBuffer))
 	})
 
@@ -328,7 +304,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.Write(context.Background(), packet.Make().Append(tcp))
+			err = raw.Write(packet.Make().Append(tcp))
 			require.NoError(t, err)
 		}()
 
@@ -337,7 +313,7 @@ func Test_Complete_Check(t *testing.T) {
 		defer raw.Close()
 
 		var p = packet.Make(0, 39, 0)
-		err = raw.Read(context.Background(), p)
+		err = raw.Read(p)
 		require.True(t, errors.Is(err, io.ErrShortBuffer))
 	})
 }
