@@ -136,7 +136,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		defer c.Close()
 		defer s.Close()
 
-		err := c.Write(packet.Make(0, 20))
+		err := c.Write(packet.Make(20, 20))
 		require.NoError(t, err)
 
 		var p = packet.Make(0, 0, 64)
