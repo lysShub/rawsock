@@ -30,7 +30,7 @@ func Test_Mock_RawConn(t *testing.T) {
 
 		go func() {
 			for i := 0; i < 1e4; i++ {
-				err := c.Write(packet.Make(0, 20))
+				err := c.Write(packet.Make(20, 20))
 				require.NoError(t, err)
 			}
 			c.Close()
@@ -48,7 +48,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		}
 
 		exp := int(1e4 * (1 - pl))
-		delta := 30
+		delta := int(float64(n) * 0.05)
 		require.LessOrEqual(t, n-delta, exp)
 		require.LessOrEqual(t, exp, n+delta)
 	})
@@ -66,7 +66,7 @@ func Test_Mock_RawConn(t *testing.T) {
 			netip.AddrPortFrom(LocIP(), RandPort()),
 		)
 
-		err := c.Write(packet.Make().Append(tcp))
+		err := c.Write(packet.Make(20, 0, len(tcp)).Append(tcp))
 		require.NoError(t, err)
 
 		var b = packet.Make(0, 128)
@@ -84,7 +84,7 @@ func Test_Mock_RawConn(t *testing.T) {
 		defer s.Close()
 
 		var tcphdr = []byte{21: 1}
-		err := c.Write(packet.Make().Append(tcphdr))
+		err := c.Write(packet.Make(20, 0, len(tcphdr)).Append(tcphdr))
 		require.NoError(t, err)
 
 		tcphdr[21] = 2
