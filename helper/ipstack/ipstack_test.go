@@ -130,17 +130,14 @@ func Test_IP_Stack_UDP(t *testing.T) {
 				return b
 			}()
 
-			ip := make([]byte, s.Size()+len(udp))
-			copy(ip[s.Size():], udp)
-
-			p := packet.Make().Append(ip).SetHead(s.Size())
-			s.AttachOutbound(p)
+			ip := packet.Make(header.IPv6FixedHeaderSize, 0, len(udp)).Append(udp)
+			s.AttachOutbound(ip)
 
 			var network header.Network
 			if suit.src.Is4() {
-				network = header.IPv4(ip)
+				network = header.IPv4(ip.Bytes())
 			} else {
-				network = header.IPv6(ip)
+				network = header.IPv6(ip.Bytes())
 			}
 
 			udp = header.UDP(network.Payload())
