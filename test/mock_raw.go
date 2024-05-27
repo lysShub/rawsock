@@ -169,7 +169,7 @@ func (r *MockRaw) Read(pkt *packet.Packet) (err error) {
 	}
 
 	if pkt.Data() < len(p.ip) {
-		return errorx.ShortBuff(pkt.Data(), len(p.ip))
+		return errorx.ShortBuff(len(p.ip), pkt.Data())
 	}
 	pkt.SetData(0).Append(p.ip)
 

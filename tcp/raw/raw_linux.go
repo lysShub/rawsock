@@ -225,7 +225,7 @@ func (c *Conn) init(cfg *rawsock.Config) (err error) {
 	//   ethtool -K lo tcp-segmentation-offload off
 	//   ethtool -K lo generic-segmentation-offload off
 	if cfg.SetGRO {
-		if err = bind.SetGRO(c.Local.Addr(), c.Remote.Addr(), cfg.SetGRO); err != nil {
+		if err = bind.SetGRO(c.Local.Addr(), c.Remote.Addr(), false); err != nil {
 			return err
 		}
 	}

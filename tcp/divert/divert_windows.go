@@ -320,7 +320,7 @@ func (c *Conn) Read(pkt *packet.Packet) (err error) {
 	n, err := c.raw.Recv(pkt.Bytes(), nil)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
-			return errorx.ShortBuff(-1, n)
+			return errorx.ShortBuff(-1, pkt.Data())
 		}
 		return err
 	}
