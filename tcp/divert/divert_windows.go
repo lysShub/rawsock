@@ -323,6 +323,8 @@ func (c *Conn) Read(pkt *packet.Packet) (err error) {
 			return errorx.ShortBuff(-1, pkt.Data())
 		}
 		return err
+	} else if n == 0 {
+		return c.Read(pkt)
 	}
 
 	pkt.SetData(n)
