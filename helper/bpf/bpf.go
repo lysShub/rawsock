@@ -11,7 +11,7 @@ import (
 
 // todo: general bpf
 
-func FilterDstPortAndSynFlag(port uint16) []bpf.Instruction {
+func FilterDstPortAndTCPSyn(port uint16) []bpf.Instruction {
 	var ins = iphdrLen()
 
 	const syn = uint32(header.TCPFlagSyn)
@@ -37,6 +37,16 @@ func FilterPorts(srcPort, dstPort uint16) []bpf.Instruction {
 	var ins = iphdrLen()
 
 	ins = append(ins, filterPorts(srcPort, dstPort)...)
+	ins = append(ins,
+		bpf.RetConstant{Val: 0xffff},
+	)
+	return ins
+}
+
+func FilterDstPort(port uint16) []bpf.Instruction {
+	var ins = iphdrLen()
+
+	ins = append(ins, filterDstPort(port)...)
 	ins = append(ins,
 		bpf.RetConstant{Val: 0xffff},
 	)
@@ -174,6 +184,15 @@ func filterPorts(srcPort, dstPort uint16) []bpf.Instruction {
 		// destination port
 		bpf.LoadIndirect{Off: 2, Size: 2},
 		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(dstPort), SkipTrue: 1},
+		bpf.RetConstant{Val: 0},
+	}
+}
+
+func filterDstPort(port uint16) []bpf.Instruction {
+	return []bpf.Instruction{
+		// destination port
+		bpf.LoadIndirect{Off: 2, Size: 2},
+		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(port), SkipTrue: 1},
 		bpf.RetConstant{Val: 0},
 	}
 }

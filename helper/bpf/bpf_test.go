@@ -12,7 +12,7 @@ import (
 
 func Test_FilterDstPortAndSynFlag(t *testing.T) {
 	var dstPort = 8080
-	var ins = FilterDstPortAndSynFlag(uint16(dstPort))
+	var ins = FilterDstPortAndTCPSyn(uint16(dstPort))
 
 	vm, err := bpf.NewVM(ins)
 	require.NoError(t, err)

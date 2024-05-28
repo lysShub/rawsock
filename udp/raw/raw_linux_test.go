@@ -5,6 +5,7 @@ package raw
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math/rand"
 	"net"
@@ -23,6 +24,69 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
+
+func Test_Listen(t *testing.T) {
+	var (
+		saddr  = netip.AddrPortFrom(test.LocIP(), 8080)
+		caddr1 = netip.AddrPortFrom(test.LocIP(), 1234)
+		caddr2 = netip.AddrPortFrom(test.LocIP(), 5678)
+	)
+	monkey.Patch(debug.Debug, func() bool { return false })
+	eg, _ := errgroup.WithContext(context.Background())
+
+	eg.Go(func() error {
+		l, err := Listen(saddr)
+		require.NoError(t, err)
+		// defer l.Close()
+		fmt.Println("server", l.Addr())
+
+		for i := 0; i < 2; i++ {
+			conn, err := l.Accept()
+			require.NoError(t, err)
+			fmt.Println("accpet")
+
+			eg.Go(func() error {
+				var pkt = packet.Make(0, 1500)
+				err := conn.Read(pkt)
+				require.NoError(t, err)
+				fmt.Println("read")
+
+				udp := header.UDP(pkt.Bytes())
+				src, dst := udp.SourcePort(), udp.DestinationPort()
+				udp.SetSourcePort(dst)
+				udp.SetDestinationPort(src)
+
+				err = conn.Write(pkt)
+				require.NoError(t, err)
+				return nil
+			})
+		}
+		return nil
+	})
+
+	time.Sleep(time.Second)
+	for _, e := range []netip.AddrPort{caddr1, caddr2} {
+		caddr := e
+		eg.Go(func() error {
+			conn, err := net.DialUDP("udp", &net.UDPAddr{Port: int(caddr.Port())}, &net.UDPAddr{IP: saddr.Addr().AsSlice(), Port: int(saddr.Port())})
+			require.NoError(t, err)
+			fmt.Println("client", conn.LocalAddr(), conn.RemoteAddr())
+
+			var b = []byte("hellow")
+			conn.Write(nil)
+			time.Sleep(time.Second)
+			_, err = conn.Write(b)
+			require.NoError(t, err)
+
+			_, err = conn.Read(b)
+			require.NoError(t, err)
+			fmt.Println(string(b))
+			return nil
+		})
+	}
+
+	eg.Wait()
+}
 
 func Test_Connect(t *testing.T) {
 	monkey.Patch(debug.Debug, func() bool { return false })

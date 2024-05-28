@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"syscall"
 
+	"github.com/lysShub/netkit/debug"
 	"github.com/lysShub/netkit/errorx"
 	"github.com/lysShub/netkit/route"
 	"github.com/pkg/errors"
@@ -26,8 +27,12 @@ func IPCheck(ip []byte) (iphdrsize uint8, err error) {
 			return 0, errorx.ShortBuff(int(tn), len(ip))
 		}
 		return header.IPv6MinimumSize, nil
+	default:
+		if debug.Debug() {
+			return 0, errors.Errorf("invalid ip packet: %#v", ip)
+		}
+		return 0, errors.New("invalid ip packet")
 	}
-	return 0, errors.New("invalid ip packet")
 }
 
 // DefaultLocal alloc deault local-addr by remote-addr

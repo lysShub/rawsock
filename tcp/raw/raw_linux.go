@@ -4,7 +4,6 @@
 package raw
 
 import (
-	"fmt"
 	"net"
 	"net/netip"
 	"sync"
@@ -54,7 +53,7 @@ func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 		laddr = netip.AddrPortFrom(rawsock.LocalAddr(), laddr.Port())
 	}
 
-	l.tcp, l.addr, err = bind.ListenLocal(laddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = bind.ListenTCPLocal(laddr, l.cfg.UsedPort)
 	if err != nil {
 		return nil, l.close(err)
 	}
@@ -67,16 +66,15 @@ func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 		return nil, l.close(err)
 	}
 
-	raw, err := l.raw.SyscallConn()
-	if err != nil {
+	if raw, err := l.raw.SyscallConn(); err != nil {
 		return nil, l.close(err)
-	}
-
-	if err = bpf.SetRawBPF(
-		raw,
-		bpf.FilterDstPortAndSynFlag(l.addr.Port()),
-	); err != nil {
-		return nil, l.close(err)
+	} else {
+		if err = bpf.SetRawBPF(
+			raw,
+			bpf.FilterDstPortAndTCPSyn(l.addr.Port()),
+		); err != nil {
+			return nil, l.close(err)
+		}
 	}
 
 	return l, nil
@@ -106,7 +104,7 @@ func (l *Listener) Accept() (rawsock.RawConn, error) {
 		if err != nil {
 			return nil, l.close(err)
 		} else if n < min {
-			return nil, fmt.Errorf("recved invalid ip packet, bytes %d", n)
+			return nil, errors.Errorf("recved invalid ip packet, bytes %d", n)
 		}
 
 		var id = itcp.ID{Local: l.addr}
@@ -133,10 +131,8 @@ func (l *Listener) Accept() (rawsock.RawConn, error) {
 			l.conns[id] = struct{}{}
 			l.connsMu.Unlock()
 
-			c := newConnect(
-				id, l.deleteConn, l.cfg.CtxPeriod,
-			)
-
+			// todo: 应该把这个SYN携带进去
+			c := newConnect(id, l.deleteConn)
 			if err := c.init(l.cfg); err != nil {
 				return nil, errorx.WrapTemp(c.close(err))
 			}
@@ -149,10 +145,12 @@ func (l *Listener) deleteConn(id itcp.ID) error {
 	if l == nil {
 		return nil
 	}
+
+	// delay delete, because tcp handshake request will retry, if
+	// Conn.Close() not send RST
 	time.AfterFunc(time.Minute, func() {
 		l.connsMu.Lock()
 		defer l.connsMu.Unlock()
-
 		delete(l.conns, id)
 	})
 	return nil
@@ -169,8 +167,6 @@ type Conn struct {
 
 	ipstack *ipstack.IPStack
 
-	ctxPeriod time.Duration
-
 	closeFn  itcp.CloseCallback
 	closeErr errorx.CloseErr
 }
@@ -186,14 +182,13 @@ func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error)
 		laddr = netip.AddrPortFrom(l, laddr.Port())
 	}
 
-	tcp, laddr, err := bind.ListenLocal(laddr, cfg.UsedPort)
+	tcp, laddr, err := bind.ListenTCPLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, err
 	}
 
 	var c = newConnect(
-		itcp.ID{Local: laddr, Remote: raddr, ISN: 0},
-		nil, cfg.CtxPeriod,
+		itcp.ID{Local: laddr, Remote: raddr, ISN: 0}, nil,
 	)
 	c.tcp = tcp
 
@@ -203,11 +198,10 @@ func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error)
 	return c, nil
 }
 
-func newConnect(id itcp.ID, closeCall itcp.CloseCallback, ctxPeriod time.Duration) *Conn {
+func newConnect(id itcp.ID, closeCall itcp.CloseCallback) *Conn {
 	return &Conn{
-		ID:        id,
-		closeFn:   closeCall,
-		ctxPeriod: ctxPeriod,
+		ID:      id,
+		closeFn: closeCall,
 	}
 }
 

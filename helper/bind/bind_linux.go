@@ -20,9 +20,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// ListenLocal occupy local tcp port, 1. alloc useable port for default-port, 2. avoid other process
+// ListenTCPLocal occupy local tcp port, 1. alloc useable port for default-port, 2. avoid other process
 // use this port, 3. system tcp stack don't send RST automatically for this port request
-func ListenLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.AddrPort, error) {
+func ListenTCPLocal(laddr netip.AddrPort, usedPort bool) (*net.TCPListener, netip.AddrPort, error) {
 	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: laddr.Addr().AsSlice(), Port: int(laddr.Port())})
 	if err != nil {
 		if usedPort {
@@ -133,6 +133,7 @@ func BindLocal(proto tcpip.TransportProtocolNumber, laddr netip.AddrPort, usedPo
 	return fd, laddr, nil
 }
 
+// todo: 不需要这个cache, server直接在listen时就设置，accpet到conn时init传个flag
 var ethOffloadCache = struct {
 	sync.RWMutex
 	GRO map[netip.Addr]bool

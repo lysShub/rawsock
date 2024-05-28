@@ -52,7 +52,7 @@ func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 	}
 
 	var err error
-	l.tcp, l.addr, err = bind.ListenLocal(laddr, l.cfg.UsedPort)
+	l.tcp, l.addr, err = bind.ListenTCPLocal(laddr, l.cfg.UsedPort)
 	if err != nil {
 		return nil, l.close(err)
 	}
@@ -72,7 +72,7 @@ func Listen(laddr netip.AddrPort, opts ...rawsock.Option) (*Listener, error) {
 
 	if err = bpf.SetRawBPF(
 		raw,
-		bpf.FilterDstPortAndSynFlag(l.addr.Port()),
+		bpf.FilterDstPortAndTCPSyn(l.addr.Port()),
 	); err != nil {
 		return nil, l.close(err)
 	}
@@ -135,9 +135,7 @@ func (l *Listener) Accept() (rawsock.RawConn, error) {
 			l.conns[id] = struct{}{}
 			l.connsMu.Unlock()
 
-			c := newConnect(
-				id, l.deleteConn, l.cfg.CtxPeriod,
-			)
+			c := newConnect(id, l.deleteConn)
 			if err := c.init(l.cfg); err != nil {
 				return nil, errorx.WrapTemp(c.close(err))
 			}
@@ -183,13 +181,10 @@ var _ rawsock.RawConn = (*Conn)(nil)
 
 func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error) {
 	cfg := rawsock.Options(opts...)
-	var c = newConnect(
-		itcp.ID{Local: laddr, Remote: raddr, ISN: 0},
-		nil, cfg.CtxPeriod,
-	)
+	var c = newConnect(itcp.ID{Local: laddr, Remote: raddr, ISN: 0}, nil)
 
 	var err error
-	c.tcp, c.Local, err = bind.ListenLocal(laddr, cfg.UsedPort)
+	c.tcp, c.Local, err = bind.ListenTCPLocal(laddr, cfg.UsedPort)
 	if err != nil {
 		return nil, c.close(err)
 	}
@@ -200,11 +195,10 @@ func Connect(laddr, raddr netip.AddrPort, opts ...rawsock.Option) (*Conn, error)
 	return c, nil
 }
 
-func newConnect(id itcp.ID, closeCall itcp.CloseCallback, ctxPeriod time.Duration) *Conn {
+func newConnect(id itcp.ID, closeCall itcp.CloseCallback) *Conn {
 	return &Conn{
-		ID:        id,
-		closeFn:   closeCall,
-		ctxPeriod: ctxPeriod,
+		ID:      id,
+		closeFn: closeCall,
 	}
 }
 
