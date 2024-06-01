@@ -276,7 +276,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.Write(packet.Make().Append(tcp))
+			err = raw.Write(packet.Make().Append(tcp...))
 			require.NoError(t, err)
 		}()
 
@@ -304,7 +304,7 @@ func Test_Complete_Check(t *testing.T) {
 
 			tcp := test.BuildTCPSync(t, saddr, caddr)
 
-			err = raw.Write(packet.Make().Append(tcp))
+			err = raw.Write(packet.Make().Append(tcp...))
 			require.NoError(t, err)
 		}()
 

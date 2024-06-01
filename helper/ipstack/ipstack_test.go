@@ -68,7 +68,7 @@ func Test_IP_Stack_TCP(t *testing.T) {
 				return b
 			}()
 
-			ip := packet.Make(header.IPv6FixedHeaderSize, 0, len(tcp)).Append(tcp)
+			ip := packet.Make(header.IPv6FixedHeaderSize, 0, len(tcp)).Append(tcp...)
 			s.AttachOutbound(ip)
 
 			var network header.Network
@@ -130,7 +130,7 @@ func Test_IP_Stack_UDP(t *testing.T) {
 				return b
 			}()
 
-			ip := packet.Make(header.IPv6FixedHeaderSize, 0, len(udp)).Append(udp)
+			ip := packet.Make(header.IPv6FixedHeaderSize, 0, len(udp)).Append(udp...)
 			s.AttachOutbound(ip)
 
 			var network header.Network
