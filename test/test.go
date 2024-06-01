@@ -187,7 +187,7 @@ func BuildRawTCP(t require.TestingT, laddr, raddr netip.AddrPort, payload []byte
 
 	s, err := ipstack.New(laddr.Addr(), raddr.Addr(), header.TCPProtocolNumber)
 	require.NoError(t, err)
-	p := packet.Make().Append(b).SetHead(s.Size())
+	p := packet.Make().Append(b...).SetHead(s.Size())
 	s.AttachOutbound(p)
 
 	// psoSum := s.AttachHeader(b, header.TCPProtocolNumber)
@@ -471,7 +471,7 @@ func BindRawToUstack(t require.TestingT, ctx context.Context, us *ustack, raw ra
 			// )
 
 			tcp := StripIP(ip)
-			err := raw.Write(packet.Make(20, 0, len(tcp)).Append(tcp))
+			err := raw.Write(packet.Make(20, 0, len(tcp)).Append(tcp...))
 			require.NoError(t, err)
 		}
 	}()
